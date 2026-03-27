@@ -19,10 +19,10 @@
 		9092
 	],
 	"features": {
-		"ghcr.io/devcontainers/features/sshd:1": {},
 		"ghcr.io/devcontainers/features/copilot-cli:1": {}
 	},
 	"shutdownAction": "stopCompose",
+	"postCreateCommand": "pip install --upgrade pip && pip install uv && uv sync",
 	"mounts": [
 		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly"
 	]
