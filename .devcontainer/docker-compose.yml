@@ -13,6 +13,7 @@ services:
       - "9000:9000"   # Native TCP interface
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
     environment:
       CLICKHOUSE_DB: metranova
       CLICKHOUSE_USER: default
@@ -26,6 +27,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-init
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        for file in /docker-entrypoint-initdb.d/*.sql; do
+          [ -f "$file" ] || continue
+          echo "Applying schema from $file"
+          clickhouse-client \
+            --host clickhouse \
+            --user default \
+            --multiquery < "$file"
+        done
 
   # ---------------------------------------------------------------------------
   # Kafka (KRaft mode — no Zookeeper required)
@@ -66,6 +89,8 @@ services:
     image: telegraf:latest
     container_name: telegraf
     depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
       kafka:
@@ -95,6 +120,8 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
     ports:
@@ -114,6 +141,8 @@ services:
     image: mcr.microsoft.com/devcontainers/python:3-3.14-trixie
     command: sleep infinity
     depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
       kafka:
