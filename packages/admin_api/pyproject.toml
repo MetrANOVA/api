@@ -1,0 +1,24 @@
+[project]
+name = "admin_api"
+version = "0.1.0"
+description = "Admin API package"
+requires-python = ">=3.14"
+dependencies = [
+	"metranova_core",
+]
+
+[dependency-groups]
+dev = [
+	"pytest>=8.4.0",
+]
+
+[project.scripts]
+admin_api = "admin_api:main"
+
+[tool.uv.sources]
+metranova_core = { workspace = true }
+
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
