@@ -1,0 +1,22 @@
+{
+	"name": "MetraNova API",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "api",
+	"workspaceFolder": "/app",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/usr/local/bin/python"
+			}
+		}
+	},
+	"forwardPorts": [
+		8123,
+		9092
+	],
+	"shutdownAction": "stopCompose"
+}
