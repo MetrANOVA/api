@@ -1,0 +1,161 @@
+version: "3.8"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      CLICKHOUSE_DB: metranova
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-init
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        for file in /docker-entrypoint-initdb.d/*.sql; do
+          [ -f "$file" ] || continue
+          echo "Applying schema from $file"
+          clickhouse-client \
+            --host clickhouse \
+            --user default \
+            --multiquery < "$file"
+        done
+
+  # ---------------------------------------------------------------------------
+  # Kafka (KRaft mode — no Zookeeper required)
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: apache/kafka:4.0.2
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "9094:9094"   # External listener
+    environment:
+      # KRaft settings
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk  # any valid base64 uuid, can hardcode for dev
+      # Listeners
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Topic defaults
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Telegraf
+  # ---------------------------------------------------------------------------
+  telegraf:
+    image: telegraf:latest
+    container_name: telegraf
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      snmp-simulator:
+        condition: service_started
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    environment:
+      HOST_PROC: /rootfs/proc
+      HOST_SYS: /rootfs/sys
+      HOST_ETC: /rootfs/etc
+
+  # ---------------------------------------------------------------------------
+  # SNMP Simulator
+  # ---------------------------------------------------------------------------
+  snmp-simulator:
+    image: xeemetric/snmp-simulator:latest
+    container_name: snmp-simulator
+    ports:
+      - "161:161/udp"
+
+  # ---------------------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+
+  # ---------------------------------------------------------------------------
+  # Python 3.14 dev container
+  # ---------------------------------------------------------------------------
+  api:
+    image: mcr.microsoft.com/devcontainers/python:3-3.14-trixie
+    command: sleep infinity
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ..:/app:cached
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_DB: metranova
+      KAFKA_BROKERS: kafka:9092
+
+volumes:
+  clickhouse_data:
+  kafka_data:
+  grafana_data:
