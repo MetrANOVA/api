@@ -2,7 +2,42 @@ version = 1
 revision = 3
 requires-python = ">=3.14"
 
+[manifest]
+members = [
+    "admin-api",
+    "app",
+    "core",
+    "pipeline",
+]
+
+[[package]]
+name = "admin-api"
+version = "0.1.0"
+source = { editable = "packages/admin_api" }
+dependencies = [
+    { name = "core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "core", editable = "packages/core" }]
+
 [[package]]
 name = "app"
 version = "0.1.0"
 source = { virtual = "." }
+
+[[package]]
+name = "core"
+version = "0.1.0"
+source = { editable = "packages/core" }
+
+[[package]]
+name = "pipeline"
+version = "0.1.0"
+source = { editable = "packages/pipeline" }
+dependencies = [
+    { name = "core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "core", editable = "packages/core" }]

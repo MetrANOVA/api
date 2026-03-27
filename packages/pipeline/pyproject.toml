@@ -1,0 +1,18 @@
+[project]
+name = "pipeline"
+version = "0.1.0"
+description = "Pipeline package"
+requires-python = ">=3.14"
+dependencies = [
+	"core",
+]
+
+[project.scripts]
+pipeline = "pipeline:main"
+
+[tool.uv.sources]
+core = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
