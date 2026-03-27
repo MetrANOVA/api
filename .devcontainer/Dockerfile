@@ -1,17 +1,12 @@
-FROM python:3.14-rc-slim
+FROM mcr.microsoft.com/devcontainers/python:3-3.14-trixie
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --upgrade pip && pip install uv
 
 COPY .python-version pyproject.toml uv.lock ./
-
-RUN pip install --upgrade pip && pip install uv
 RUN echo 'eval "$(uv generate-shell-completion bash)"' >> ~/.bashrc
+
 RUN uv sync
 
 COPY . .

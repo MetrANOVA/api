@@ -18,5 +18,12 @@
 		8123,
 		9092
 	],
-	"shutdownAction": "stopCompose"
+	"features": {
+		"ghcr.io/devcontainers/features/sshd:1": {},
+		"ghcr.io/devcontainers/features/copilot-cli:1": {}
+	},
+	"shutdownAction": "stopCompose",
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly"
+	]
 }
