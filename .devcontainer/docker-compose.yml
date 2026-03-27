@@ -89,6 +89,25 @@ services:
       - "161:161/udp"
 
   # ---------------------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+
+  # ---------------------------------------------------------------------------
   # Python 3.14 dev container
   # ---------------------------------------------------------------------------
   api:
@@ -110,3 +129,4 @@ services:
 volumes:
   clickhouse_data:
   kafka_data:
+  grafana_data:
