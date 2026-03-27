@@ -1,2 +1,5 @@
+from metranova.main import run_pipeline
+
+
 def main() -> None:
-    print("pipeline service started")
+    run_pipeline()

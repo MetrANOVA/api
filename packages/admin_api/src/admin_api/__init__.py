@@ -1,2 +1,5 @@
+from metranova.main import run_admin_api
+
+
 def main() -> None:
-    print("admin_api service started")
+    run_admin_api()

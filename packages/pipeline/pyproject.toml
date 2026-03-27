@@ -4,14 +4,20 @@ version = "0.1.0"
 description = "Pipeline package"
 requires-python = ">=3.14"
 dependencies = [
-	"core",
+	"metranova_core",
+]
+
+[dependency-groups]
+dev = [
+	"pytest>=8.4.0",
 ]
 
 [project.scripts]
 pipeline = "pipeline:main"
 
 [tool.uv.sources]
-core = { workspace = true }
+metranova_core = { workspace = true }
+
 
 [build-system]
 requires = ["hatchling>=1.25.0"]
