@@ -1,11 +1,14 @@
 import os
 import logging
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import admin_api.logs as logs
 from .settings import get_settings
+from .routers.resource_type import router as resource_type_router
+from .context import lifespan
 
 description = """
 # MetrANOVA Admin API
@@ -24,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 is_pytest = "pytest" in sys.modules
 
-app = FastAPI(title="MetrANOVA Admin API", description=description)
+
+app = FastAPI(title="MetrANOVA Admin API", description=description, lifespan=lifespan)
 
 app.root_path = settings.root_path
 app.add_middleware(
@@ -42,3 +46,4 @@ async def index():
 
 
 # Add routers here
+app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])

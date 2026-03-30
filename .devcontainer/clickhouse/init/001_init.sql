@@ -3,6 +3,65 @@
 
 CREATE DATABASE IF NOT EXISTS metranova;
 
+
+CREATE TABLE IF NOT EXISTS metranova.definition 
+(
+id String,                -- Stable external identifier (e.g., 'def_interface_01')
+    ref String,               -- Immutable snapshot version (e.g., 'def_interface_01__v1')
+    
+    name String,              -- e.g., 'Interface Traffic'
+    slug String,              -- e.g., 'interface-traffic'
+    type Enum8('data' = 1, 'metadata' = 2),
+    consumer_type String,
+    consumer_config String,
+    
+    -- Table Construction Schema
+    fields Array(Tuple(
+        field_name String, 
+        field_type String, 
+        nullable Bool DEFAULT true
+    )),
+    primary_key Array(String),-- e.g., ['interface_ref', 'timestamp']
+    partition_by String,      -- e.g., 'toYYYYMM(timestamp)'
+    ttl String,               -- e.g., '365 DAY'
+    engine_type String DEFAULT ‘CoalescingMergeTree’,
+    is_replicated Bool DEFAULT true,
+    
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplicatedMergeTree()
+ORDER BY (ref);
+
+CREATE TABLE IF NOT EXISTS metranova.transformer (
+    id String,                -- Stable identifier (e.g., 'trans_interface_std')
+    ref String,               -- Immutable snapshot (e.g., 'trans_interface_std__v1')
+    definition_ref String,    -- Downstream join to the specific Definition snapshot ('def_int_01__v1')
+    
+    name String,              
+    slug String,              
+    description String,       
+    
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplicatedMergeTree()
+ORDER BY (ref);
+
+CREATE TABLE IF NOT EXISTS metranova.transformer_column (
+    transformer_ref String,   -- Links strictly to 'trans_int_std__v1'
+    target_column String,     
+    
+    match_field String,       
+    match_value String,       
+    
+    extract_field String,     
+    
+    rules Array(Tuple(
+        action String, 
+        arguments Map(String, String) 
+    ))
+) ENGINE = ReplicatedMergeTree()
+ORDER BY (transformer_ref, target_column, match_field, match_value);
+
+
+
 -- -------------------------------------------------------------------------
 -- Raw SNMP metrics landing table
 -- Written to by the pipeline consumer from the snmp.metrics Kafka topic.
