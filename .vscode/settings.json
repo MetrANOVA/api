@@ -1,0 +1,15 @@
+{
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "black-formatter.interpreter": [
+        "/app/.venv/bin/python"
+    ],
+    "makefile.configureOnOpen": false,
+    "editor.formatOnSave": true
+}

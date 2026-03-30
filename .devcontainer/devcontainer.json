@@ -7,10 +7,18 @@
 		"vscode": {
 			"extensions": [
 				"ms-python.python",
+				"ms-python.black-formatter",
 				"ms-python.vscode-pylance"
 			],
 			"settings": {
-				"python.defaultInterpreterPath": "/usr/local/bin/python"
+				"python.defaultInterpreterPath": "/app/.venv/bin/python",
+				"editor.formatOnSave": true,
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter"
+				},
+				"black-formatter.interpreter": [
+					"/app/.venv/bin/python"
+				]
 			}
 		}
 	},

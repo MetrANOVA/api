@@ -30,6 +30,12 @@ Run tests per package:
 - `uv run --group dev --package admin_api pytest packages/admin_api/tests -q`
 - `uv run --group dev --package pipeline pytest packages/pipeline/tests -q`
 
+## Formatting
+
+Format Python code with Black:
+
+- `uv run --group dev black .`
+
 ## Docker build
 
 Build one image for the whole workspace (core + admin_api + pipeline):
