@@ -184,7 +184,50 @@ class Clickhouse(StorageEngine):
         return True, f"Type {name} has been successfully created"
 
     async def find_all_resource_types(self):
-        pass
+        if not await self.is_connected():
+            return None
+
+        try:
+            result = await self.client.query(
+                """
+                SELECT
+                    id,
+                    ref,
+                    name,
+                    slug,
+                    type,
+                    consumer_type,
+                    consumer_config,
+                    fields,
+                    primary_key,
+                    partition_by,
+                    ttl,
+                    engine_type,
+                    is_replicated,
+                    updated_at
+                FROM metranova.definition
+                """
+            )
+            column_names = [
+                "id",
+                "ref",
+                "name",
+                "slug",
+                "type",
+                "consumer_type",
+                "consumer_config",
+                "fields",
+                "primary_key",
+                "partition_by",
+                "ttl",
+                "engine_type",
+                "is_replicated",
+                "updated_at",
+            ]
+            return [dict(zip(column_names, row)) for row in result.result_rows]
+        except Exception as e:
+            logger.exception(f"Error retrieving all resource types: {e}")
+            return None
 
     async def find_resource_type_by_slug(self, slug: str):
         """Find a resource type by slug. Returns the row if found, None otherwise."""
@@ -201,6 +244,54 @@ class Clickhouse(StorageEngine):
             return None
         except Exception as e:
             logger.error(f"Error checking for existing slug '{slug}': {e}")
+            return None
+
+    async def find_resource_type_schema_by_slug(self, slug: str):
+        if not await self.is_connected():
+            return None
+
+        definition = await self.find_resource_type_by_slug(slug)
+        if definition is None:
+            return None
+
+        resource_type = (
+            definition["type"] if isinstance(definition, dict) else definition[4]
+        )
+        if str(resource_type) == CollectionType.DATA:
+            table_name = f"data_{slug}"
+        elif str(resource_type) == CollectionType.METADATA:
+            table_name = f"meta_{slug}"
+        else:
+            logger.error(f"Unknown resource type '{resource_type}' for slug '{slug}'")
+            return None
+
+        try:
+            result = await self.client.query(f"DESCRIBE TABLE metranova.{table_name}")
+            column_names = [
+                "name",
+                "type",
+                "default_type",
+                "default_expression",
+                "comment",
+                "codec_expression",
+                "ttl_expression",
+            ]
+
+            columns = []
+            for row in result.result_rows:
+                row_dict = {}
+                for index, key in enumerate(column_names):
+                    row_dict[key] = row[index] if index < len(row) else None
+                columns.append(row_dict)
+
+            return {
+                "slug": slug,
+                "type": str(resource_type),
+                "table": f"metranova.{table_name}",
+                "columns": columns,
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving schema for slug '{slug}': {e}")
             return None
 
     async def create_data_table(

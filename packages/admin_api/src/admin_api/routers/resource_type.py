@@ -9,6 +9,7 @@ from ..context import get_clickhouse
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+schema_router = APIRouter()
 
 
 @router.post("/")
@@ -46,3 +47,61 @@ async def create_resource_type(
             status_code=500,
             detail=msg,
         )
+
+
+@router.get("/")
+async def get_all_resource_types(
+    se: Clickhouse = Depends(get_clickhouse),
+):
+    results = await se.find_all_resource_types()
+    if results is None:
+        raise HTTPException(status_code=500, detail="Error fetching all resource types")
+    return results
+
+
+@router.get("/{slug}")
+async def get_resource_type_by_slug(
+    slug: str,
+    se: Clickhouse = Depends(get_clickhouse),
+):
+    result = await se.find_resource_type_by_slug(slug)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Resource type with slug '{slug}' not found",
+        )
+
+    if isinstance(result, dict):
+        return result
+
+    column_names = [
+        "id",
+        "ref",
+        "name",
+        "slug",
+        "type",
+        "consumer_type",
+        "consumer_config",
+        "fields",
+        "primary_key",
+        "partition_by",
+        "ttl",
+        "engine_type",
+        "is_replicated",
+        "updated_at",
+    ]
+    return dict(zip(column_names, result))
+
+
+@schema_router.get("/{slug}/schema")
+async def get_resource_type_schema_by_slug(
+    slug: str,
+    se: Clickhouse = Depends(get_clickhouse),
+):
+    schema = await se.find_resource_type_schema_by_slug(slug)
+    if schema is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Schema for resource type with slug '{slug}' not found",
+        )
+    return schema

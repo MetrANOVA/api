@@ -331,7 +331,7 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert "site String" in query
     assert "PRIMARY KEY (id, hostname)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
-    assert "ORDER BY id" in query
+    assert "ORDER BY (id, hostname)" in query
 
 
 def test_find_methods_currently_return_none(monkeypatch):
@@ -340,6 +340,53 @@ def test_find_methods_currently_return_none(monkeypatch):
 
     assert asyncio.run(storage.find_all_resource_types()) is None
     assert asyncio.run(storage.update_resource_type("foo")) is None
+
+
+def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [
+        (
+            "def_interface-traffic",
+            "def_interface-traffic__v1",
+            "Interface Traffic",
+            "interface-traffic",
+            "data",
+            "kafka",
+            '{"topic":"snmp.metrics"}',
+            [("if_name", "String", True)],
+            ["if_name"],
+            "toYYYYMM(timestamp)",
+            "365 DAY",
+            "MergeTree()",
+            True,
+            "2026-03-31 00:00:00",
+        )
+    ]
+
+    result = asyncio.run(storage.find_all_resource_types())
+
+    assert isinstance(result, list)
+    assert isinstance(result[0], dict)
+    assert result[0]["slug"] == "interface-traffic"
+    assert result[0]["type"] == "data"
+    assert result[0]["primary_key"] == ["if_name"]
+
+
+def test_find_all_resource_types_returns_none_on_query_error(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def failing_query(query, parameters=None):
+        raise RuntimeError("query failed")
+
+    storage.client.query = failing_query
+
+    result = asyncio.run(storage.find_all_resource_types())
+
+    assert result is None
 
 
 def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
@@ -384,6 +431,58 @@ def test_find_resource_type_by_slug_returns_none_on_error(monkeypatch):
     storage.client.query = failing_query
 
     result = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
+
+    assert result is None
+
+
+def test_find_resource_type_schema_by_slug_returns_schema_dict_for_data(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(
+                result_rows=[
+                    (
+                        "def_interface-traffic",
+                        "def_interface-traffic__v1",
+                        "Interface Traffic",
+                        "interface-traffic",
+                        "data",
+                    )
+                ]
+            )
+        if "DESCRIBE TABLE" in query:
+            return SimpleNamespace(
+                result_rows=[
+                    ("collector_id", "LowCardinality(String)", "", "", "", "", ""),
+                    ("if_name", "String", "", "", "", "", ""),
+                ]
+            )
+        return SimpleNamespace(result_rows=[])
+
+    storage.client.query = mock_query
+
+    result = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
+
+    assert result is not None
+    assert result["slug"] == "interface-traffic"
+    assert result["type"] == "data"
+    assert result["table"] == "metranova.data_interface-traffic"
+    assert result["columns"][0]["name"] == "collector_id"
+    assert result["columns"][1]["type"] == "String"
+
+
+def test_find_resource_type_schema_by_slug_returns_none_when_definition_missing(
+    monkeypatch,
+):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = []
+
+    result = asyncio.run(storage.find_resource_type_schema_by_slug("missing-slug"))
 
     assert result is None
 
