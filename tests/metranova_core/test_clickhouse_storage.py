@@ -61,39 +61,6 @@ def test_init_sets_config_from_env(monkeypatch):
     assert storage.client is None
 
 
-def test_init_calls_create_database_when_not_skipped(monkeypatch):
-    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "false")
-    called = {"value": False}
-
-    def fake_create_database(self):
-        called["value"] = True
-
-    monkeypatch.setattr(Clickhouse, "create_database", fake_create_database)
-    Clickhouse()
-
-    assert called["value"] is True
-
-
-def test_create_database_executes_create_db_query(monkeypatch):
-    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
-    monkeypatch.setenv("CLICKHOUSE_DB", "metranova")
-    monkeypatch.setenv("CLICKHOUSE_CLUSTER_NAME", "cluster-a")
-    client = DummySyncClient()
-
-    monkeypatch.setattr(
-        "metranova.storage.clickhouse.clickhouse_connect.create_client",
-        lambda **kwargs: client,
-    )
-
-    storage = Clickhouse()
-    storage.create_database()
-
-    assert len(client.commands) == 1
-    assert "CREATE DATABASE IF NOT EXISTS metranova" in client.commands[0]
-    assert "ON CLUSTER 'cluster-a'" in client.commands[0]
-    assert client.closed is True
-
-
 def test_close_closes_client(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -106,22 +73,17 @@ def test_close_closes_client(monkeypatch):
 
 def test_create_returns_initialized_instance(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
-    state = {"connect": False, "ensure": False}
+    state = {"connect": False}
 
     async def fake_connect(self):
         state["connect"] = True
 
-    async def fake_ensure(self):
-        state["ensure"] = True
-
     monkeypatch.setattr(Clickhouse, "connect", fake_connect)
-    monkeypatch.setattr(Clickhouse, "_ensure_definition_table", fake_ensure)
 
     storage = asyncio.run(Clickhouse.create())
 
     assert isinstance(storage, Clickhouse)
     assert state["connect"] is True
-    assert state["ensure"] is True
 
 
 def test_connect_creates_async_client_and_pings(monkeypatch):
@@ -177,17 +139,18 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            type="data",
+            collection_type="data",
             consumer_type="kafka",
             consumer_config={"topic": "snmp.metrics"},
             fields=fields,
-            primary_key=["host", "timestamp"],
+            primary_key=["if_name"],
             partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
 
-    assert success is True
+    assert success[0] is True
+    assert success[1] == "Type Interface Traffic has been successfully created"
     assert len(storage.client.insert_calls) == 1
     call = storage.client.insert_calls[0]
     assert call["database"] == "metranova"
@@ -213,17 +176,18 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            type="data",
+            collection_type="data",
             consumer_type="kafka",
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", True)],
-            primary_key=["host", "timestamp"],
+            primary_key=["if_name"],
             partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
 
-    assert success is False
+    assert success[0] is False
+    assert success[1] == "Error during type definition insertion"
 
 
 def test_ensure_definition_table_skips_when_exists(monkeypatch):

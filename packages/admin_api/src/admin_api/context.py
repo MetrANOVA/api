@@ -17,8 +17,7 @@ async def lifespan(app: FastAPI):
             se = await Clickhouse.create()
         except Exception as e:
             logger.error("Error connecting to Clickhouse")
-            logger.error(e)
-            raise (e)
+            logger.exception(e)
     else:
         logger.error(f"Unsupported storage type {storage_type}")
     if se is None:

@@ -3,7 +3,7 @@ import json
 import logging
 import os
 
-from .base import StorageEngine
+from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
 
 logger = logging.getLogger(__name__)
 
@@ -21,24 +21,14 @@ class Clickhouse(StorageEngine):
         self.password = os.getenv("CLICKHOUSE_PASSWORD", "")
         self.cluster_name = os.getenv("CLICKHOUSE_CLUSTER_NAME", None)
 
-        # Create database
-        skip_db_creation = os.getenv("CLICKHOUSE_SKIP_DB_CREATE", "false").lower() in [
-            "1",
-            "true",
-            "yes",
-        ]
-        if not skip_db_creation:
-            # setup database
-            self.create_database()
-
         # self.is_connected = False
         self.client = None
 
     @classmethod
     async def create(cls) -> "Clickhouse":
         instance = cls()
+
         await instance.connect()
-        await instance._ensure_definition_table()
         return instance
 
     async def connect(self):
@@ -62,27 +52,19 @@ class Clickhouse(StorageEngine):
             logger.error(f"Failed to connect to ClickHouse: {e}")
             raise
 
-    def create_database(self):
+    async def create_database(self):
         """Create the target database if it doesn't exist"""
         if self.database is None:
             logger.warning("No database name specified, skipping database creation")
             return
         try:
-            client = clickhouse_connect.create_client(
-                host=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                secure=os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true",
-                verify=False,
-            )
             create_db_query = f"CREATE DATABASE IF NOT EXISTS {self.database}"
             if self.cluster_name:
                 create_db_query += f" ON CLUSTER '{self.cluster_name}'"
             logger.debug(f"Creating database with query: {create_db_query}")
-            client.command(create_db_query)
+            await self.client.command(create_db_query)
             logger.info(f"Database {self.database} is ready")
-            client.close()
+            # client.close()
         except Exception as e:
             logger.error(f"Failed to create database {self.database}: {e}")
             raise
@@ -100,25 +82,35 @@ class Clickhouse(StorageEngine):
 
     async def create_resource_type(
         self,
-        name,
-        slug,
-        type,
-        consumer_type,
-        consumer_config,
-        fields,
-        primary_key,
-        partition_by,
-        ttl,
+        name: str,
+        slug: str,
+        collection_type: CollectionType,
+        consumer_type: ConsumerType,
+        consumer_config: dict,
+        fields: list[CollectionField],
+        primary_key: list[str],
+        partition_by: str,
+        ttl: str,
         engine_type="CoalescingMergeTree",
         is_replicated=True,
-    ) -> bool:
-        if not await self.is_connected():
-            await self.connect()
+    ) -> tuple[bool, str]:
         if not await self.is_connected():
             raise ("Couldn't connect to Clickhouse")
 
+        try:
+            await self._ensure_definition_table()
+        except Exception as e:
+            logger.exception(e)
+            return False, "couldn't ensure type definition table exists"
+
         id = f"def_{slug}"
         ref = f"{id}__v1"
+
+        # Validate primary key is listed as field
+        primary_fields = [f for f in fields if f.field_name in primary_key]
+        if len(primary_fields) != len(primary_key):
+            logger.error("Primary Key and Fields mismatch")
+            return False, "mismatch between primary keys and fields"
 
         fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in fields]
 
@@ -127,7 +119,7 @@ class Clickhouse(StorageEngine):
             ref,
             name,
             slug,
-            type,
+            collection_type,
             consumer_type,
             json.dumps(consumer_config),
             fields_tuple,
@@ -161,9 +153,9 @@ class Clickhouse(StorageEngine):
             )
         except Exception as e:
             logger.error(f"Error during type definition insertion: {e}")
-            return False
+            return False, "Error during type definition insertion"
 
-        return True
+        return True, f"Type {name} has been successfully created"
 
     async def find_all_resource_types(self):
         pass
