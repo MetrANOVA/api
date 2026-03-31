@@ -33,7 +33,7 @@ class DummyAsyncClient:
     async def insert(self, **kwargs):
         self.insert_calls.append(kwargs)
 
-    async def query(self, query):
+    async def query(self, query, parameters=None):
         return SimpleNamespace(result_rows=self.query_result)
 
     async def command(self, query):
@@ -130,6 +130,14 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
+    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
+
     fields = [
         CollectionField(field_name="if_name", field_type="String", nullable=True),
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
@@ -166,6 +174,14 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
+
+    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
 
     async def failing_insert(**kwargs):
         raise RuntimeError("insert failed")
@@ -223,3 +239,95 @@ def test_find_methods_currently_return_none(monkeypatch):
     assert asyncio.run(storage.find_all_resource_types()) is None
     assert asyncio.run(storage.find_resource_type_by_name("foo")) is None
     assert asyncio.run(storage.update_resource_type("foo")) is None
+
+
+def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [
+        ("def_interface-traffic", "def_interface-traffic__v1", "Interface Traffic")
+    ]
+
+    result = asyncio.run(
+        storage.find_resource_type_by_slug_and_type("interface-traffic", "data")
+    )
+
+    assert result == (
+        "def_interface-traffic",
+        "def_interface-traffic__v1",
+        "Interface Traffic",
+    )
+
+
+def test_find_resource_type_by_slug_returns_none_when_not_found(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = []
+
+    result = asyncio.run(
+        storage.find_resource_type_by_slug_and_type("nonexistent", "data")
+    )
+
+    assert result is None
+
+
+def test_find_resource_type_by_slug_returns_none_on_error(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def failing_query(query, parameters=None):
+        raise RuntimeError("query failed")
+
+    storage.client.query = failing_query
+
+    result = asyncio.run(
+        storage.find_resource_type_by_slug_and_type("interface-traffic", "data")
+    )
+
+    assert result is None
+
+
+def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    # Mock the query method to have different results based on the query
+    original_query = storage.client.query
+
+    async def mock_query(query, parameters=None):
+        # EXISTS query returns [[0]] or [[1]]
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        # Query for slug returns a result tuple
+        if (
+            "WHERE slug" in query
+            and parameters
+            and parameters[0] == "interface-traffic"
+            and parameters[1] == "data"
+        ):
+            return SimpleNamespace(result_rows=[("def_interface-traffic", "...")])
+        return await original_query(query, parameters)
+
+    storage.client.query = mock_query
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Traffic",
+            slug="interface-traffic",
+            collection_type="data",
+            consumer_type="kafka",
+            consumer_config={"topic": "snmp.metrics"},
+            fields=[CollectionField("if_name", "String", True)],
+            primary_key=["if_name"],
+            partition_by="toYYYYMM(timestamp)",
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is False
+    assert "already exists" in success[1]
+    assert len(storage.client.insert_calls) == 0

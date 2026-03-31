@@ -103,6 +103,12 @@ class Clickhouse(StorageEngine):
             logger.exception(e)
             return False, "couldn't ensure type definition table exists"
 
+        # Check if resource type with same slug already exists
+        existing = await self.find_resource_type_by_slug_and_type(slug, collection_type)
+        if existing:
+            logger.warning(f"Resource type with slug '{slug}' already exists")
+            return False, f"Resource type with slug '{slug}' already exists"
+
         id = f"def_{slug}"
         ref = f"{id}__v1"
 
@@ -159,6 +165,25 @@ class Clickhouse(StorageEngine):
 
     async def find_all_resource_types(self):
         pass
+
+    async def find_resource_type_by_slug_and_type(
+        self, slug: str, collection_type: CollectionType
+    ):
+        """Find a resource type by slug. Returns the row if found, None otherwise."""
+        if not await self.is_connected():
+            return None
+
+        try:
+            result = await self.client.query(
+                "SELECT * FROM metranova.definition WHERE slug = %s AND type = %s LIMIT 1",
+                parameters=[slug, collection_type],
+            )
+            if result.result_rows and len(result.result_rows) > 0:
+                return result.result_rows[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error checking for existing slug '{slug}': {e}")
+            return None
 
     async def find_resource_type_by_name(self, name):
         pass
