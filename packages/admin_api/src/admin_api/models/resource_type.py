@@ -11,6 +11,17 @@ class ResourceFieldRequest(BaseModel):
     field_type: str = Field(min_length=1)
     nullable: bool = True
 
+    @field_validator("field_type")
+    @classmethod
+    def normalize_field_type(cls, v: str) -> str:
+        """Capitalize the first letter of each ClickHouse type identifier.
+
+        Converts e.g. 'string' -> 'String', 'array(string)' -> 'Array(String)',
+        'nullable(datetime64)' -> 'Nullable(Datetime64)'.
+        ClickHouse type names are case-sensitive and must start with a capital letter.
+        """
+        return re.sub(r"(?<![a-zA-Z])([a-z])", lambda m: m.group(1).upper(), v)
+
 
 class CreateResourceTypeRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])

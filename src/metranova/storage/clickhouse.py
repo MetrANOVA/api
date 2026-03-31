@@ -104,7 +104,7 @@ class Clickhouse(StorageEngine):
             return False, "couldn't ensure type definition table exists"
 
         # Check if resource type with same slug already exists
-        existing = await self.find_resource_type_by_slug_and_type(slug, collection_type)
+        existing = await self.find_resource_type_by_slug(slug)
         if existing:
             logger.warning(f"Resource type with slug '{slug}' already exists")
             return False, f"Resource type with slug '{slug}' already exists"
@@ -119,6 +119,24 @@ class Clickhouse(StorageEngine):
             return False, "mismatch between primary keys and fields"
 
         fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in fields]
+
+        # Create the data/meta table BEFORE writing the definition row.
+        # ClickHouse DDL cannot be rolled back, so we establish the table first —
+        # if it fails, no definition row is written. If the definition insert later
+        # fails we are left with an orphaned table (recoverable), rather than a
+        # definition row pointing at a non-existent table (not recoverable).
+        try:
+            if collection_type == CollectionType.DATA:
+                await self.create_data_table(
+                    slug, primary_key, partition_by, ttl, engine_type, fields_tuple
+                )
+            elif collection_type == CollectionType.METADATA:
+                await self.create_meta_table(
+                    slug, fields_tuple, engine_type, partition_by, primary_key
+                )
+        except Exception as e:
+            logger.exception(f"Error while creating table for '{slug}': {e}")
+            return False, "Error during table creation"
 
         row = [
             id,
@@ -158,7 +176,9 @@ class Clickhouse(StorageEngine):
                 ],
             )
         except Exception as e:
-            logger.error(f"Error during type definition insertion: {e}")
+            logger.exception(
+                f"Error during type definition insertion for '{slug}': {e}"
+            )
             return False, "Error during type definition insertion"
 
         return True, f"Type {name} has been successfully created"
@@ -166,17 +186,15 @@ class Clickhouse(StorageEngine):
     async def find_all_resource_types(self):
         pass
 
-    async def find_resource_type_by_slug_and_type(
-        self, slug: str, collection_type: CollectionType
-    ):
+    async def find_resource_type_by_slug(self, slug: str):
         """Find a resource type by slug. Returns the row if found, None otherwise."""
         if not await self.is_connected():
             return None
 
         try:
             result = await self.client.query(
-                "SELECT * FROM metranova.definition WHERE slug = %s AND type = %s LIMIT 1",
-                parameters=[slug, collection_type],
+                "SELECT * FROM metranova.definition WHERE slug = %s LIMIT 1",
+                parameters=[slug],
             )
             if result.result_rows and len(result.result_rows) > 0:
                 return result.result_rows[0]
@@ -185,8 +203,87 @@ class Clickhouse(StorageEngine):
             logger.error(f"Error checking for existing slug '{slug}': {e}")
             return None
 
-    async def find_resource_type_by_name(self, name):
-        pass
+    async def create_data_table(
+        self,
+        slug: str,
+        primary_key: list[str],
+        partition_by: str,
+        ttl: str,
+        engine: str,
+        fields: list[tuple[str, str, bool]],
+    ):
+        field_columns = []
+        for f in fields:
+            col = f"{f[0]} {f[1]}"
+            if f[2] is False:
+                col += " NOT NULL"
+            field_columns.append(col)
+
+        query = f"""
+        CREATE TABLE metranova.data_{slug} 
+        (
+            collector_id LowCardinality(String) NOT NULL,
+            policy_level LowCardinality(String) NOT NULL,
+            policy_scope Array(LowCardinality(String)) NOT NULL,
+            policy_originator LowCardinality(String) NOT NULL,
+            insert_time DateTime DEFAULT now(),
+            {",\n".join(field_columns)},
+            ext JSON
+        )
+        ENGINE = {engine}
+        ORDER BY (collector_id, {', '.join(primary_key)})
+        PRIMARY KEY (collector_id, {', '.join(primary_key)})
+        PARTITION BY {partition_by}
+        TTL insert_time + INTERVAL {ttl};
+        """
+
+        logger.info(query)
+        try:
+            await self.client.command(query)
+        except Exception as e:
+            logger.exception(e)
+            raise
+
+    async def create_meta_table(
+        self,
+        slug: str,
+        fields: list[tuple[str, str, bool]],
+        engine: str,
+        partition_by: str,
+        primary_key: list[str],
+    ):
+        field_columns = []
+        for f in fields:
+            col = f"{f[0]} {f[1]}"
+            if f[2] is False:
+                col += " NOT NULL"
+            field_columns.append(col)
+
+        query = f"""
+        CREATE TABLE metranova.meta_{slug} (
+            id String NOT NULL,
+            ref String NOT NULL,
+            hash String NOT NULL,
+            insert_time DateTime DEFAULT now() NOT NULL,
+            tag Array(LowCardinality(String)), 
+            policy_level LowCardinality(String) NOT NULL,
+            policy_scope Array(LowCardinality(String)) NOT NULL,
+            policy_originator LowCardinality(String) NOT NULL,
+            {",\n".join(field_columns)},
+            ext JSON
+        )
+        ENGINE = {engine}
+        ORDER BY (id, {', '.join(primary_key)})
+        PRIMARY KEY (id, {', '.join(primary_key)})
+        PARTITION BY {partition_by};
+        """
+
+        logger.info(query)
+        try:
+            await self.client.command(query)
+        except Exception as e:
+            logger.exception(e)
+            raise
 
     async def update_resource_type(self, name):
         pass

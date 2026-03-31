@@ -48,6 +48,26 @@ def test_create_resource_type_request_rejects_duplicate_field_names():
 
 
 @pytest.mark.parametrize(
+    "raw_type, normalized_type",
+    [
+        ("string", "String"),
+        ("float64", "Float64"),
+        ("datetime64", "Datetime64"),
+        ("array(string)", "Array(String)"),
+        ("nullable(string)", "Nullable(String)"),
+        ("lowcardinality(string)", "Lowcardinality(String)"),
+        ("String", "String"),  # already correct — unchanged
+        ("Float64", "Float64"),  # already correct — unchanged
+    ],
+)
+def test_resource_field_request_normalizes_field_type_casing(raw_type, normalized_type):
+    from admin_api.models.resource_type import ResourceFieldRequest
+
+    field = ResourceFieldRequest(field_name="col", field_type=raw_type)
+    assert field.field_type == normalized_type
+
+
+@pytest.mark.parametrize(
     "ttl",
     [
         "365 DAY",

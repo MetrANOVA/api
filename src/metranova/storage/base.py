@@ -57,7 +57,7 @@ class StorageEngine(ABC):
         pass
 
     @abstractmethod
-    async def find_resource_type_by_name(self, name: str) -> dict:
+    async def find_resource_type_by_slug(self, slug: str) -> dict:
         pass
 
     @abstractmethod

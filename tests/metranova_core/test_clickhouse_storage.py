@@ -24,6 +24,7 @@ class DummyAsyncClient:
         self.ping_value = ping_value
         self.insert_calls = []
         self.query_result = [[1]]
+        self.query_calls = []
         self.command_calls = []
         self.closed = False
 
@@ -34,6 +35,7 @@ class DummyAsyncClient:
         self.insert_calls.append(kwargs)
 
     async def query(self, query, parameters=None):
+        self.query_calls.append((query, parameters))
         return SimpleNamespace(result_rows=self.query_result)
 
     async def command(self, query):
@@ -206,6 +208,46 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     assert success[1] == "Error during type definition insertion"
 
 
+def test_create_resource_type_table_creation_failure_prevents_definition_insert(
+    monkeypatch,
+):
+    """If the data/meta table cannot be created, the definition row must not be inserted."""
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
+
+    async def failing_command(query):
+        raise RuntimeError("DDL failed")
+
+    storage.client.command = failing_command
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Traffic",
+            slug="interface-traffic",
+            collection_type="data",
+            consumer_type="kafka",
+            consumer_config={"topic": "snmp.metrics"},
+            fields=[CollectionField("if_name", "String", True)],
+            primary_key=["if_name"],
+            partition_by="toYYYYMM(timestamp)",
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is False
+    assert success[1] == "Error during table creation"
+    # Definition row must NOT have been written
+    assert len(storage.client.insert_calls) == 0
+
+
 def test_ensure_definition_table_skips_when_exists(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -232,12 +274,71 @@ def test_ensure_definition_table_creates_when_missing(monkeypatch):
     )
 
 
+def test_create_data_table_executes_expected_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    asyncio.run(
+        storage.create_data_table(
+            slug="interface_traffic",
+            primary_key=["if_name", "timestamp"],
+            partition_by="toYYYYMM(timestamp)",
+            ttl="365 DAY",
+            engine="MergeTree()",
+            fields=[
+                ("if_name", "String", False),
+                ("timestamp", "DateTime64", False),
+                ("rx_bps", "Float64", True),
+            ],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    query = storage.client.command_calls[0]
+    assert "CREATE TABLE metranova.data_interface_traffic" in query
+    assert "if_name String NOT NULL" in query
+    assert "rx_bps Float64" in query
+    assert "PRIMARY KEY (collector_id, if_name, timestamp)" in query
+    assert "PARTITION BY toYYYYMM(timestamp)" in query
+    assert "ORDER BY (collector_id, if_name, timestamp)" in query
+    assert "TTL insert_time + INTERVAL 365 DAY" in query
+    assert "insert_time DateTime DEFAULT now()," in query
+
+
+def test_create_meta_table_executes_expected_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    asyncio.run(
+        storage.create_meta_table(
+            slug="device_inventory",
+            fields=[
+                ("hostname", "String", False),
+                ("site", "String", True),
+            ],
+            engine="MergeTree()",
+            partition_by="toYYYYMM(insert_time)",
+            primary_key=["hostname"],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    query = storage.client.command_calls[0]
+    assert "CREATE TABLE metranova.meta_device_inventory" in query
+    assert "hostname String NOT NULL" in query
+    assert "site String" in query
+    assert "PRIMARY KEY (id, hostname)" in query
+    assert "PARTITION BY toYYYYMM(insert_time)" in query
+    assert "ORDER BY id" in query
+
+
 def test_find_methods_currently_return_none(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
 
     assert asyncio.run(storage.find_all_resource_types()) is None
-    assert asyncio.run(storage.find_resource_type_by_name("foo")) is None
     assert asyncio.run(storage.update_resource_type("foo")) is None
 
 
@@ -249,15 +350,16 @@ def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
         ("def_interface-traffic", "def_interface-traffic__v1", "Interface Traffic")
     ]
 
-    result = asyncio.run(
-        storage.find_resource_type_by_slug_and_type("interface-traffic", "data")
-    )
+    result = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
 
     assert result == (
         "def_interface-traffic",
         "def_interface-traffic__v1",
         "Interface Traffic",
     )
+    query, parameters = storage.client.query_calls[0]
+    assert "WHERE slug = %s" in query
+    assert parameters == ["interface-traffic"]
 
 
 def test_find_resource_type_by_slug_returns_none_when_not_found(monkeypatch):
@@ -266,9 +368,7 @@ def test_find_resource_type_by_slug_returns_none_when_not_found(monkeypatch):
     storage.client = DummyAsyncClient()
     storage.client.query_result = []
 
-    result = asyncio.run(
-        storage.find_resource_type_by_slug_and_type("nonexistent", "data")
-    )
+    result = asyncio.run(storage.find_resource_type_by_slug("nonexistent"))
 
     assert result is None
 
@@ -283,9 +383,7 @@ def test_find_resource_type_by_slug_returns_none_on_error(monkeypatch):
 
     storage.client.query = failing_query
 
-    result = asyncio.run(
-        storage.find_resource_type_by_slug_and_type("interface-traffic", "data")
-    )
+    result = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
 
     assert result is None
 
@@ -307,7 +405,6 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
             "WHERE slug" in query
             and parameters
             and parameters[0] == "interface-traffic"
-            and parameters[1] == "data"
         ):
             return SimpleNamespace(result_rows=[("def_interface-traffic", "...")])
         return await original_query(query, parameters)
