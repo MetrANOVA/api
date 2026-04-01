@@ -81,6 +81,9 @@ class Clickhouse(StorageEngine):
         else:
             return False
 
+    def _qualified_table_name(self, table_name: str) -> str:
+        return f"`{self.database}`.`{table_name}`"
+
     async def create_resource_type(
         self,
         name: str,
@@ -96,7 +99,7 @@ class Clickhouse(StorageEngine):
         is_replicated=True,
     ) -> tuple[bool, str]:
         if not await self.is_connected():
-            raise ("Couldn't connect to Clickhouse")
+            return False, "couldn't connect to Clickhouse"
 
         try:
             await self._ensure_definition_table()
@@ -282,7 +285,7 @@ class Clickhouse(StorageEngine):
     ):
         for field_name, field_type, nullable in fields:
             query = (
-                f"ALTER TABLE metranova.{table_name} "
+                f"ALTER TABLE {self._qualified_table_name(table_name)} "
                 f"ADD COLUMN IF NOT EXISTS {field_name} {field_type}"
             )
             if not nullable:
@@ -309,7 +312,9 @@ class Clickhouse(StorageEngine):
             return None
 
         try:
-            result = await self.client.query(f"DESCRIBE TABLE metranova.{table_name}")
+            result = await self.client.query(
+                f"DESCRIBE TABLE {self._qualified_table_name(table_name)}"
+            )
             column_names = [
                 "name",
                 "type",
@@ -353,8 +358,9 @@ class Clickhouse(StorageEngine):
                 col += " NOT NULL"
             field_columns.append(col)
 
+        table_name = f"data_{slug}"
         query = f"""
-        CREATE TABLE metranova.data_{slug} 
+        CREATE TABLE {self._qualified_table_name(table_name)} 
         (
             collector_id LowCardinality(String) NOT NULL,
             policy_level LowCardinality(String) NOT NULL,
@@ -393,8 +399,9 @@ class Clickhouse(StorageEngine):
                 col += " NOT NULL"
             field_columns.append(col)
 
+        table_name = f"meta_{slug}"
         query = f"""
-        CREATE TABLE metranova.meta_{slug} (
+        CREATE TABLE {self._qualified_table_name(table_name)} (
             id String NOT NULL,
             ref String NOT NULL,
             hash String NOT NULL,

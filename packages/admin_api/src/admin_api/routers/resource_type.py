@@ -9,7 +9,6 @@ from ..context import get_clickhouse
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-schema_router = APIRouter()
 
 
 @router.post("/")
@@ -93,7 +92,7 @@ async def get_resource_type_by_slug(
     return dict(zip(column_names, result))
 
 
-@schema_router.get("/{slug}/schema")
+@router.get("/{slug}/schema")
 async def get_resource_type_schema_by_slug(
     slug: str,
     se: Clickhouse = Depends(get_clickhouse),
@@ -107,7 +106,7 @@ async def get_resource_type_schema_by_slug(
     return schema
 
 
-@schema_router.put("/{slug}")
+@router.put("/{slug}")
 async def update_resource_type_by_slug(
     slug: str,
     request: UpdateResourceTypeRequest,

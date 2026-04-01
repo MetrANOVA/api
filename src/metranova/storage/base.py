@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import IntEnum, StrEnum
+from enum import StrEnum
+from typing import Any
 
 
 class CollectionType(StrEnum):
@@ -28,7 +29,7 @@ class StorageEngine(ABC):
         pass
 
     @abstractmethod
-    def is_connected(self) -> bool:
+    async def is_connected(self) -> bool:
         pass
 
     @abstractmethod
@@ -40,7 +41,7 @@ class StorageEngine(ABC):
         self,
         name: str,
         slug: str,
-        type: CollectionType,
+        collection_type: CollectionType,
         consumer_type: ConsumerType,
         consumer_config: dict,
         fields: list[CollectionField],
@@ -49,17 +50,23 @@ class StorageEngine(ABC):
         ttl: str,
         engine_type: str = "CoalescingMergeTree",
         is_replicated: bool = True,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         pass
 
     @abstractmethod
-    async def find_all_resource_types(self) -> list:
+    async def find_all_resource_types(self) -> list | None:
         pass
 
     @abstractmethod
-    async def find_resource_type_by_slug(self, slug: str) -> dict:
+    async def find_resource_type_by_slug(self, slug: str) -> dict[str, Any] | tuple | None:
         pass
 
     @abstractmethod
-    async def update_resource_type(self, name: str) -> bool:
+    async def update_resource_type(
+        self,
+        slug: str,
+        fields: list[CollectionField] | None = None,
+        consumer_config_updates: dict | None = None,
+        ext_updates: dict | None = None,
+    ) -> tuple[bool, str]:
         pass

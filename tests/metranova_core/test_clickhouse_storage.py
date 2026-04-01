@@ -297,7 +297,7 @@ def test_create_data_table_executes_expected_query(monkeypatch):
 
     assert len(storage.client.command_calls) == 1
     query = storage.client.command_calls[0]
-    assert "CREATE TABLE metranova.data_interface_traffic" in query
+    assert "CREATE TABLE `metranova`.`data_interface_traffic`" in query
     assert "if_name String NOT NULL" in query
     assert "rx_bps Float64" in query
     assert "PRIMARY KEY (collector_id, if_name, timestamp)" in query
@@ -327,7 +327,7 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
 
     assert len(storage.client.command_calls) == 1
     query = storage.client.command_calls[0]
-    assert "CREATE TABLE metranova.meta_device_inventory" in query
+    assert "CREATE TABLE `metranova`.`meta_device_inventory`" in query
     assert "hostname String NOT NULL" in query
     assert "site String" in query
     assert "PRIMARY KEY (id, hostname)" in query
@@ -570,7 +570,9 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
     assert success[0] is True
     assert "__v2" in success[1]
     assert len(storage.client.command_calls) == 1
-    assert "ALTER TABLE metranova.data_ip_address" in storage.client.command_calls[0]
+    assert (
+        "ALTER TABLE `metranova`.`data_ip_address`" in storage.client.command_calls[0]
+    )
     assert len(storage.client.insert_calls) == 1
     row = storage.client.insert_calls[0]["data"][0]
     assert row[1] == "def_ip_address__v2"

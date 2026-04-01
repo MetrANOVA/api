@@ -9,7 +9,6 @@ import admin_api.logs as logs
 from .settings import get_settings
 from .routers.resource_type import (
     router as resource_type_router,
-    schema_router as resource_type_schema_router,
 )
 from .context import lifespan
 
@@ -17,7 +16,7 @@ description = """
 # MetrANOVA Admin API
 Use this API to manage MetrANOVA.
 """
-sys.recursionlimit = 10000
+sys.setrecursionlimit(10000)
 
 settings = get_settings()
 
@@ -45,9 +44,8 @@ app.add_middleware(
 
 @app.get("/")
 async def index():
-    return {"message": "Hello World!"}
+    return {"name": "MetrANOVA Admin API", "version": "0.0.1"}
 
 
 # Add routers here
 app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])
-app.include_router(resource_type_schema_router, prefix="/types", tags=["resource_type"])
