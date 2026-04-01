@@ -2,6 +2,7 @@ import clickhouse_connect
 import json
 import logging
 import os
+import re
 
 from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
 
@@ -236,7 +237,7 @@ class Clickhouse(StorageEngine):
 
         try:
             result = await self.client.query(
-                "SELECT * FROM metranova.definition WHERE slug = %s LIMIT 1",
+                "SELECT * FROM metranova.definition WHERE slug = %s ORDER BY updated_at DESC LIMIT 1",
                 parameters=[slug],
             )
             if result.result_rows and len(result.result_rows) > 0:
@@ -245,6 +246,48 @@ class Clickhouse(StorageEngine):
         except Exception as e:
             logger.error(f"Error checking for existing slug '{slug}': {e}")
             return None
+
+    def _definition_to_dict(self, definition):
+        if isinstance(definition, dict):
+            return definition
+
+        keys = [
+            "id",
+            "ref",
+            "name",
+            "slug",
+            "type",
+            "consumer_type",
+            "consumer_config",
+            "fields",
+            "primary_key",
+            "partition_by",
+            "ttl",
+            "engine_type",
+            "is_replicated",
+            "updated_at",
+        ]
+        return dict(zip(keys, definition))
+
+    def _bump_ref_version(self, ref: str, definition_id: str) -> str:
+        match = re.search(r"__v(\d+)$", ref)
+        if match:
+            return f"{definition_id}__v{int(match.group(1)) + 1}"
+        return f"{definition_id}__v2"
+
+    async def _add_columns_to_table(
+        self,
+        table_name: str,
+        fields: list[tuple[str, str, bool]],
+    ):
+        for field_name, field_type, nullable in fields:
+            query = (
+                f"ALTER TABLE metranova.{table_name} "
+                f"ADD COLUMN IF NOT EXISTS {field_name} {field_type}"
+            )
+            if not nullable:
+                query += " NOT NULL"
+            await self.client.command(query)
 
     async def find_resource_type_schema_by_slug(self, slug: str):
         if not await self.is_connected():
@@ -376,8 +419,125 @@ class Clickhouse(StorageEngine):
             logger.exception(e)
             raise
 
-    async def update_resource_type(self, name):
-        pass
+    async def update_resource_type(
+        self,
+        slug: str,
+        fields: list[CollectionField] | None = None,
+        consumer_config_updates: dict | None = None,
+        ext_updates: dict | None = None,
+    ) -> tuple[bool, str]:
+        if not await self.is_connected():
+            return False, "Couldn't connect to Clickhouse"
+
+        current = await self.find_resource_type_by_slug(slug)
+        if current is None:
+            return False, f"Resource type with slug '{slug}' not found"
+
+        current_def = self._definition_to_dict(current)
+        new_fields = fields or []
+        config_updates = consumer_config_updates or {}
+        ext_updates = ext_updates or {}
+
+        if not new_fields and not config_updates and not ext_updates:
+            return False, "No additive updates provided"
+
+        existing_fields = current_def.get("fields") or []
+        # Handle both dict and tuple field representations from ClickHouse
+        existing_field_names = set()
+        normalized_fields = []
+        for field in existing_fields:
+            if isinstance(field, dict):
+                field_name = field.get("field_name")
+                field_type = field.get("field_type")
+                nullable = field.get("nullable", True)
+                existing_field_names.add(field_name)
+                normalized_fields.append((field_name, field_type, nullable))
+            else:
+                existing_field_names.add(field[0])
+                normalized_fields.append(field)
+
+        fields_to_add = []
+        for field in new_fields:
+            if field.field_name in existing_field_names:
+                return False, f"Field '{field.field_name}' already exists"
+            fields_to_add.append((field.field_name, field.field_type, field.nullable))
+
+        table_type = str(current_def["type"])
+        if table_type == CollectionType.DATA:
+            table_name = f"data_{slug}"
+        elif table_type == CollectionType.METADATA:
+            table_name = f"meta_{slug}"
+        else:
+            return False, f"Unknown type '{table_type}' for slug '{slug}'"
+
+        try:
+            if fields_to_add:
+                await self._add_columns_to_table(table_name, fields_to_add)
+        except Exception as e:
+            logger.exception(f"Error altering table metranova.{table_name}: {e}")
+            return False, "Error updating table schema"
+
+        merged_fields = [*normalized_fields, *fields_to_add]
+
+        try:
+            current_config = current_def.get("consumer_config") or {}
+            if isinstance(current_config, str):
+                current_config = json.loads(current_config)
+        except Exception:
+            current_config = {}
+
+        if not isinstance(current_config, dict):
+            current_config = {}
+
+        merged_config = {**current_config, **config_updates}
+        if ext_updates:
+            existing_ext = merged_config.get("ext") or {}
+            if not isinstance(existing_ext, dict):
+                existing_ext = {}
+            merged_config["ext"] = {**existing_ext, **ext_updates}
+
+        new_ref = self._bump_ref_version(current_def["ref"], current_def["id"])
+        row = [
+            current_def["id"],
+            new_ref,
+            current_def["name"],
+            current_def["slug"],
+            current_def["type"],
+            current_def["consumer_type"],
+            json.dumps(merged_config),
+            merged_fields,
+            current_def["primary_key"],
+            current_def["partition_by"],
+            current_def["ttl"],
+            current_def["engine_type"],
+            current_def["is_replicated"],
+        ]
+
+        try:
+            await self.client.insert(
+                database="metranova",
+                table="definition",
+                data=[row],
+                column_names=[
+                    "id",
+                    "ref",
+                    "name",
+                    "slug",
+                    "type",
+                    "consumer_type",
+                    "consumer_config",
+                    "fields",
+                    "primary_key",
+                    "partition_by",
+                    "ttl",
+                    "engine_type",
+                    "is_replicated",
+                ],
+            )
+            return True, f"Resource type '{slug}' updated to {new_ref}"
+        except Exception as e:
+            logger.exception(f"Error writing updated definition for slug '{slug}': {e}")
+            return False, "Error persisting updated definition"
 
     async def _ensure_definition_table(self) -> None:
         if not await self.is_connected():

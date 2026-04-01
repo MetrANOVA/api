@@ -105,3 +105,16 @@ class CreateResourceTypeRequest(BaseModel):
             raise ValueError("primary_key values must exist in fields.field_name")
 
         return self
+
+
+class UpdateResourceTypeRequest(BaseModel):
+    fields: list[ResourceFieldRequest] = Field(default_factory=list)
+    consumer_config: dict[str, Any] = Field(default_factory=dict)
+    ext: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unique_fields(self):
+        field_names = [field.field_name for field in self.fields]
+        if len(field_names) != len(set(field_names)):
+            raise ValueError("fields must have unique field_name values")
+        return self

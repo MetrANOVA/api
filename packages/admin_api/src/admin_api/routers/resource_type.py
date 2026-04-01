@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from metranova.storage.clickhouse import Clickhouse
 from metranova.storage.base import CollectionField
-from ..models.resource_type import CreateResourceTypeRequest
+from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 
 logger = logging.getLogger(__name__)
@@ -105,3 +105,33 @@ async def get_resource_type_schema_by_slug(
             detail=f"Schema for resource type with slug '{slug}' not found",
         )
     return schema
+
+
+@schema_router.put("/{slug}")
+async def update_resource_type_by_slug(
+    slug: str,
+    request: UpdateResourceTypeRequest,
+    se: Clickhouse = Depends(get_clickhouse),
+):
+    fields = [
+        CollectionField(
+            field_name=field.field_name,
+            field_type=field.field_type,
+            nullable=field.nullable,
+        )
+        for field in request.fields
+    ]
+
+    success, message = await se.update_resource_type(
+        slug=slug,
+        fields=fields,
+        consumer_config_updates=request.consumer_config,
+        ext_updates=request.ext,
+    )
+
+    if not success:
+        if "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=message)
+        raise HTTPException(status_code=400, detail=message)
+
+    return {"message": message}

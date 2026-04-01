@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -339,7 +340,8 @@ def test_find_methods_currently_return_none(monkeypatch):
     storage = Clickhouse()
 
     assert asyncio.run(storage.find_all_resource_types()) is None
-    assert asyncio.run(storage.update_resource_type("foo")) is None
+    update_result = asyncio.run(storage.update_resource_type("foo"))
+    assert update_result[0] is False
 
 
 def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
@@ -527,3 +529,107 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
     assert success[0] is False
     assert "already exists" in success[1]
     assert len(storage.client.insert_calls) == 0
+
+
+def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    existing = (
+        "def_ip_address",
+        "def_ip_address__v1",
+        "IP Address",
+        "ip_address",
+        "data",
+        "kafka",
+        '{"topic": "snmp.metrics", "ext": {"owner": "ops"}}',
+        [("ip", "String", False)],
+        ["ip"],
+        "toYYYYMM(insert_time)",
+        "365 DAY",
+        "MergeTree()",
+        True,
+        "2026-03-31 00:00:00",
+    )
+
+    async def mock_find(slug):
+        return existing if slug == "ip_address" else None
+
+    storage.find_resource_type_by_slug = mock_find
+
+    success = asyncio.run(
+        storage.update_resource_type(
+            slug="ip_address",
+            fields=[CollectionField("hostname", "String", True)],
+            consumer_config_updates={"topic": "snmp.metrics.v2"},
+            ext_updates={"team": "network"},
+        )
+    )
+
+    assert success[0] is True
+    assert "__v2" in success[1]
+    assert len(storage.client.command_calls) == 1
+    assert "ALTER TABLE metranova.data_ip_address" in storage.client.command_calls[0]
+    assert len(storage.client.insert_calls) == 1
+    row = storage.client.insert_calls[0]["data"][0]
+    assert row[1] == "def_ip_address__v2"
+    assert ("hostname", "String", True) in row[7]
+    merged_config = json.loads(row[6])
+    assert merged_config["topic"] == "snmp.metrics.v2"
+    assert merged_config["ext"]["owner"] == "ops"
+    assert merged_config["ext"]["team"] == "network"
+
+
+def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    existing = {
+        "id": "def_ip_address",
+        "ref": "def_ip_address__v1",
+        "name": "IP Address",
+        "slug": "ip_address",
+        "type": "data",
+        "consumer_type": "kafka",
+        "consumer_config": "{}",
+        "fields": [("ip", "String", False)],
+        "primary_key": ["ip"],
+        "partition_by": "toYYYYMM(insert_time)",
+        "ttl": "365 DAY",
+        "engine_type": "MergeTree()",
+        "is_replicated": True,
+    }
+
+    async def mock_find(slug):
+        return existing
+
+    storage.find_resource_type_by_slug = mock_find
+
+    success = asyncio.run(
+        storage.update_resource_type(
+            slug="ip_address",
+            fields=[CollectionField("ip", "String", False)],
+        )
+    )
+
+    assert success[0] is False
+    assert "already exists" in success[1]
+    assert len(storage.client.insert_calls) == 0
+
+
+def test_update_resource_type_fails_when_slug_not_found(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_find(slug):
+        return None
+
+    storage.find_resource_type_by_slug = mock_find
+
+    success = asyncio.run(storage.update_resource_type(slug="does_not_exist"))
+
+    assert success[0] is False
+    assert "not found" in success[1].lower()
