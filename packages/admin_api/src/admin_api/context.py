@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Unsupported storage type {storage_type}")
     if se is None:
         logger.error("Error initializing storage service")
-        raise RuntimeError("Unknown error intializing storage engine")
+        raise RuntimeError("Unknown error initializing storage engine")
 
     app.state.se = se
     try:
