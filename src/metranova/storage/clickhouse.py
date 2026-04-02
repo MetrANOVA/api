@@ -10,13 +10,23 @@ logger = logging.getLogger(__name__)
 
 
 class Clickhouse(StorageEngine):
+    _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    _TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_,()\s]+$")
+
     def __init__(self):
         super().__init__()
 
         # ClickHouse configuration from environment
         self.host = os.getenv("CLICKHOUSE_HOST", "localhost")
         # self.port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-        self.port = 8123
+        port = os.getenv("CLICKHOUSE_PORT", "8123")
+        try:
+            self.port = int(port)
+        except ValueError:
+            logger.warning(
+                f"Invalid CLICKHOUSE_PORT value '{port}', defaulting to 8123"
+            )
+            self.port = 8123
         self.database = os.getenv("CLICKHOUSE_DB", "default")
         self.username = os.getenv("CLICKHOUSE_USERNAME", "default")
         self.password = os.getenv("CLICKHOUSE_PASSWORD", "")
@@ -33,6 +43,10 @@ class Clickhouse(StorageEngine):
         return instance
 
     async def connect(self):
+        # Check to see if we need to care about TLS verification
+        secure = os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true"
+        verify_env = os.getenv("CLICKHOUSE_VERIFY")
+        verify = secure if verify_env is None else verify_env.lower() == "true"
         # Initialize ClickHouse connection
         try:
             self.client = await clickhouse_connect.create_async_client(
@@ -41,8 +55,8 @@ class Clickhouse(StorageEngine):
                 username=self.username,
                 password=self.password,
                 database=self.database,
-                secure=os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true",
-                verify=False,
+                secure=secure,
+                verify=verify,
             )
             # Test connection
             await self.client.ping()
@@ -84,6 +98,23 @@ class Clickhouse(StorageEngine):
     def _qualified_table_name(self, table_name: str) -> str:
         return f"`{self.database}`.`{table_name}`"
 
+    def _quoted_identifier(self, name: str) -> str:
+        if not self._IDENTIFIER_PATTERN.fullmatch(name):
+            raise ValueError(f"Invalid identifier: {name}")
+        return f"`{name}`"
+
+    def _validated_column_type(self, field_type: str) -> str:
+        value = field_type.strip()
+        if not value:
+            raise ValueError("Column type cannot be empty")
+        if any(token in value for token in (";", "--", "/*", "*/", "\\")):
+            raise ValueError(f"Invalid column type: {field_type}")
+        if not self._TYPE_PATTERN.fullmatch(value):
+            raise ValueError(f"Invalid column type: {field_type}")
+        if value.count("(") != value.count(")"):
+            raise ValueError(f"Invalid column type: {field_type}")
+        return value
+
     async def create_resource_type(
         self,
         name: str,
@@ -113,8 +144,8 @@ class Clickhouse(StorageEngine):
             logger.warning(f"Resource type with slug '{slug}' already exists")
             return False, f"Resource type with slug '{slug}' already exists"
 
-        id = f"def_{slug}"
-        ref = f"{id}__v1"
+        definition_id = f"def_{slug}"
+        ref = f"{definition_id}__v1"
 
         # Validate primary key is listed as field
         primary_fields = [f for f in fields if f.field_name in primary_key]
@@ -143,7 +174,7 @@ class Clickhouse(StorageEngine):
             return False, "Error during table creation"
 
         row = [
-            id,
+            definition_id,
             ref,
             name,
             slug,
@@ -160,7 +191,7 @@ class Clickhouse(StorageEngine):
 
         try:
             await self.client.insert(
-                database="metranova",
+                database=self.database,
                 table="definition",
                 data=[row],
                 column_names=[
@@ -193,7 +224,7 @@ class Clickhouse(StorageEngine):
 
         try:
             result = await self.client.query(
-                """
+                f"""
                 SELECT
                     id,
                     ref,
@@ -209,7 +240,7 @@ class Clickhouse(StorageEngine):
                     engine_type,
                     is_replicated,
                     updated_at
-                FROM metranova.definition
+                FROM {self.database}.definition
                 """
             )
             column_names = [
@@ -240,7 +271,7 @@ class Clickhouse(StorageEngine):
 
         try:
             result = await self.client.query(
-                "SELECT * FROM metranova.definition WHERE slug = %s ORDER BY updated_at DESC LIMIT 1",
+                f"SELECT * FROM {self.database}.definition WHERE slug = %s ORDER BY updated_at DESC LIMIT 1",
                 parameters=[slug],
             )
             if result.result_rows and len(result.result_rows) > 0:
@@ -284,9 +315,11 @@ class Clickhouse(StorageEngine):
         fields: list[tuple[str, str, bool]],
     ):
         for field_name, field_type, nullable in fields:
+            safe_field_name = self._quoted_identifier(field_name)
+            safe_field_type = self._validated_column_type(field_type)
             query = (
                 f"ALTER TABLE {self._qualified_table_name(table_name)} "
-                f"ADD COLUMN IF NOT EXISTS {field_name} {field_type}"
+                f"ADD COLUMN IF NOT EXISTS {safe_field_name} {safe_field_type}"
             )
             if not nullable:
                 query += " NOT NULL"
@@ -353,10 +386,14 @@ class Clickhouse(StorageEngine):
     ):
         field_columns = []
         for f in fields:
-            col = f"{f[0]} {f[1]}"
+            safe_field_name = self._quoted_identifier(f[0])
+            safe_field_type = self._validated_column_type(f[1])
+            col = f"{safe_field_name} {safe_field_type}"
             if f[2] is False:
                 col += " NOT NULL"
             field_columns.append(col)
+
+        safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
 
         table_name = f"data_{slug}"
         query = f"""
@@ -371,8 +408,8 @@ class Clickhouse(StorageEngine):
             ext JSON
         )
         ENGINE = {engine}
-        ORDER BY (collector_id, {', '.join(primary_key)})
-        PRIMARY KEY (collector_id, {', '.join(primary_key)})
+        ORDER BY (collector_id, {', '.join(safe_primary_keys)})
+        PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
         PARTITION BY {partition_by}
         TTL insert_time + INTERVAL {ttl};
         """
@@ -394,10 +431,14 @@ class Clickhouse(StorageEngine):
     ):
         field_columns = []
         for f in fields:
-            col = f"{f[0]} {f[1]}"
+            safe_field_name = self._quoted_identifier(f[0])
+            safe_field_type = self._validated_column_type(f[1])
+            col = f"{safe_field_name} {safe_field_type}"
             if f[2] is False:
                 col += " NOT NULL"
             field_columns.append(col)
+
+        safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
 
         table_name = f"meta_{slug}"
         query = f"""
@@ -414,8 +455,8 @@ class Clickhouse(StorageEngine):
             ext JSON
         )
         ENGINE = {engine}
-        ORDER BY (id, {', '.join(primary_key)})
-        PRIMARY KEY (id, {', '.join(primary_key)})
+        ORDER BY (id, {', '.join(safe_primary_keys)})
+        PRIMARY KEY (id, {', '.join(safe_primary_keys)})
         PARTITION BY {partition_by};
         """
 

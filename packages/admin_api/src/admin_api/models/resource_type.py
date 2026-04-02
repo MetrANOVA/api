@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -11,16 +11,102 @@ class ResourceFieldRequest(BaseModel):
     field_type: str = Field(min_length=1)
     nullable: bool = True
 
+    _CLICKHOUSE_TYPE_MAP: ClassVar[dict[str, str]] = {
+        "string": "String",
+        "bool": "Bool",
+        "boolean": "Bool",
+        "uuid": "UUID",
+        "ipv4": "IPv4",
+        "ipv6": "IPv6",
+        "date": "Date",
+        "date32": "Date32",
+        "datetime": "DateTime",
+        "datetime32": "DateTime32",
+        "datetime64": "DateTime64",
+        "int8": "Int8",
+        "int16": "Int16",
+        "int32": "Int32",
+        "int64": "Int64",
+        "int128": "Int128",
+        "int256": "Int256",
+        "uint8": "UInt8",
+        "uint16": "UInt16",
+        "uint32": "UInt32",
+        "uint64": "UInt64",
+        "uint128": "UInt128",
+        "uint256": "UInt256",
+        "float32": "Float32",
+        "float64": "Float64",
+        "decimal": "Decimal",
+        "decimal32": "Decimal32",
+        "decimal64": "Decimal64",
+        "decimal128": "Decimal128",
+        "decimal256": "Decimal256",
+        "enum8": "Enum8",
+        "enum16": "Enum16",
+        "json": "JSON",
+        "object": "Object",
+        "nothing": "Nothing",
+    }
+    _CLICKHOUSE_WRAPPER_MAP: ClassVar[dict[str, str]] = {
+        "array": "Array",
+        "nullable": "Nullable",
+        "lowcardinality": "LowCardinality",
+        "map": "Map",
+        "tuple": "Tuple",
+        "nested": "Nested",
+        "simpleaggregatefunction": "SimpleAggregateFunction",
+        "aggregatefunction": "AggregateFunction",
+    }
+
+    @classmethod
+    def _split_type_arguments(cls, args: str) -> list[str]:
+        parts: list[str] = []
+        current: list[str] = []
+        depth = 0
+        for char in args:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            elif char == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+                continue
+            current.append(char)
+        if current:
+            parts.append("".join(current).strip())
+        return parts
+
+    @classmethod
+    def _normalize_clickhouse_type(cls, value: str) -> str:
+        value = value.strip()
+        lowered = value.lower()
+        if lowered in cls._CLICKHOUSE_TYPE_MAP:
+            return cls._CLICKHOUSE_TYPE_MAP[lowered]
+        match = re.fullmatch(r"([A-Za-z][A-Za-z0-9]*)\s*\((.*)\)", value)
+        if not match:
+            return value
+        type_name, inner = match.groups()
+        normalized_name = cls._CLICKHOUSE_WRAPPER_MAP.get(
+            type_name.lower(),
+            cls._CLICKHOUSE_TYPE_MAP.get(type_name.lower(), type_name),
+        )
+        normalized_args = ", ".join(
+            cls._normalize_clickhouse_type(part)
+            for part in cls._split_type_arguments(inner)
+        )
+        return f"{normalized_name}({normalized_args})"
+
     @field_validator("field_type")
     @classmethod
     def normalize_field_type(cls, v: str) -> str:
-        """Capitalize the first letter of each ClickHouse type identifier.
-
+        """Normalize ClickHouse type names to their canonical case.
         Converts e.g. 'string' -> 'String', 'array(string)' -> 'Array(String)',
-        'nullable(datetime64)' -> 'Nullable(Datetime64)'.
-        ClickHouse type names are case-sensitive and must start with a capital letter.
+        'nullable(datetime64)' -> 'Nullable(DateTime64)',
+        'lowcardinality(string)' -> 'LowCardinality(String)'.
         """
-        return re.sub(r"(?<![a-zA-Z])([a-z])", lambda m: m.group(1).upper(), v)
+        return cls._normalize_clickhouse_type(v)
 
 
 class CreateResourceTypeRequest(BaseModel):
@@ -90,7 +176,7 @@ class CreateResourceTypeRequest(BaseModel):
                 "Format: <number> <TIME_UNIT> where TIME_UNIT is one of: "
                 "SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, YEAR"
             )
-        return v
+        return v.upper()
 
     @model_validator(mode="after")
     def validate_primary_key_fields(self):

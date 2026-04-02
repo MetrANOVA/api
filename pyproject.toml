@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "clickhouse-connect>=0.15.0",
+    "httpx>=0.28.1",
     "pydantic-settings>=2.13.1",
 ]
 
@@ -38,5 +39,5 @@ testpaths = [
 
 [tool.black]
 line-length = 88
-target-version = ["py313"]
+target-version = ["py314"]
 include = "\\.pyi?$"

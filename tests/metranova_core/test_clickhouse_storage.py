@@ -298,11 +298,11 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     assert len(storage.client.command_calls) == 1
     query = storage.client.command_calls[0]
     assert "CREATE TABLE `metranova`.`data_interface_traffic`" in query
-    assert "if_name String NOT NULL" in query
-    assert "rx_bps Float64" in query
-    assert "PRIMARY KEY (collector_id, if_name, timestamp)" in query
+    assert "`if_name` String NOT NULL" in query
+    assert "`rx_bps` Float64" in query
+    assert "PRIMARY KEY (collector_id, `if_name`, `timestamp`)" in query
     assert "PARTITION BY toYYYYMM(timestamp)" in query
-    assert "ORDER BY (collector_id, if_name, timestamp)" in query
+    assert "ORDER BY (collector_id, `if_name`, `timestamp`)" in query
     assert "TTL insert_time + INTERVAL 365 DAY" in query
     assert "insert_time DateTime DEFAULT now()," in query
 
@@ -328,11 +328,82 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert len(storage.client.command_calls) == 1
     query = storage.client.command_calls[0]
     assert "CREATE TABLE `metranova`.`meta_device_inventory`" in query
-    assert "hostname String NOT NULL" in query
-    assert "site String" in query
-    assert "PRIMARY KEY (id, hostname)" in query
+    assert "`hostname` String NOT NULL" in query
+    assert "`site` String" in query
+    assert "PRIMARY KEY (id, `hostname`)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
-    assert "ORDER BY (id, hostname)" in query
+    assert "ORDER BY (id, `hostname`)" in query
+
+
+def test_add_columns_to_table_rejects_malicious_field_name(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            storage._add_columns_to_table(
+                table_name="data_interface_traffic",
+                fields=[("host; DROP TABLE x", "String", True)],
+            )
+        )
+
+    assert storage.client.command_calls == []
+
+
+def test_add_columns_to_table_rejects_malicious_field_type(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            storage._add_columns_to_table(
+                table_name="data_interface_traffic",
+                fields=[("host", "String); DROP TABLE x;--", True)],
+            )
+        )
+
+    assert storage.client.command_calls == []
+
+
+def test_create_data_table_rejects_malicious_primary_key_identifier(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            storage.create_data_table(
+                slug="interface_traffic",
+                primary_key=["if_name`, now()); DROP TABLE metranova.definition;--"],
+                partition_by="toYYYYMM(timestamp)",
+                ttl="365 DAY",
+                engine="MergeTree()",
+                fields=[("if_name", "String", False)],
+            )
+        )
+
+    assert storage.client.command_calls == []
+
+
+def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            storage.create_meta_table(
+                slug="device_inventory",
+                fields=[("hostname", "String/*bad*/", False)],
+                engine="MergeTree()",
+                partition_by="toYYYYMM(insert_time)",
+                primary_key=["hostname"],
+            )
+        )
+
+    assert storage.client.command_calls == []
 
 
 def test_find_methods_currently_return_none(monkeypatch):

@@ -52,10 +52,10 @@ def test_create_resource_type_request_rejects_duplicate_field_names():
     [
         ("string", "String"),
         ("float64", "Float64"),
-        ("datetime64", "Datetime64"),
+        ("datetime64", "DateTime64"),
         ("array(string)", "Array(String)"),
         ("nullable(string)", "Nullable(String)"),
-        ("lowcardinality(string)", "Lowcardinality(String)"),
+        ("lowcardinality(string)", "LowCardinality(String)"),
         ("String", "String"),  # already correct — unchanged
         ("Float64", "Float64"),  # already correct — unchanged
     ],

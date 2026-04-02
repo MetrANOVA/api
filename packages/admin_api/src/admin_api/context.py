@@ -18,11 +18,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error("Error connecting to Clickhouse")
             logger.exception(e)
+            raise e
     else:
         logger.error(f"Unsupported storage type {storage_type}")
     if se is None:
         logger.error("Error initializing storage service")
-        raise Exception("Unknown error intializing storage engine")
+        raise RuntimeError("Unknown error intializing storage engine")
 
     app.state.se = se
     try:
