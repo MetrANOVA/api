@@ -11,7 +11,14 @@
 				"ms-python.vscode-pylance"
 			],
 			"settings": {
-				"python.defaultInterpreterPath": "/usr/local/bin/python"
+				"python.defaultInterpreterPath": "/app/.venv/bin/python",
+				"editor.formatOnSave": true,
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter"
+				},
+				"black-formatter.interpreter": [
+					"/app/.venv/bin/python"
+				]
 			}
 		}
 	},
@@ -25,6 +32,7 @@
 	"shutdownAction": "stopCompose",
 	"postCreateCommand": "pip install --upgrade pip && pip install uv && uv sync",
 	"mounts": [
-		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly"
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly",
+		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"
 	]
 }

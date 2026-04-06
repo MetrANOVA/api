@@ -5,6 +5,9 @@ description = "Admin API package"
 requires-python = ">=3.14"
 dependencies = [
 	"metranova_core",
+	"fastapi (>=0.120.0,<0.128.1)",
+    "uvicorn[standard] (>=0.34.0,<0.35.0)",
+    "python-json-logger>=3.3.0",
 ]
 
 [dependency-groups]

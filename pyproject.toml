@@ -4,10 +4,15 @@ version = "0.1.0"
 description = "Shared core package for MetrANOVA services"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "clickhouse-connect>=0.15.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.13.1",
+]
 
 [dependency-groups]
 dev = [
+	"black>=26.3.1",
 	"pytest>=8.4.0",
 ]
 
@@ -31,3 +36,8 @@ testpaths = [
 	"packages/admin_api/tests",
 	"packages/pipeline/tests",
 ]
+
+[tool.black]
+line-length = 88
+target-version = ["py314"]
+include = "\\.pyi?$"
