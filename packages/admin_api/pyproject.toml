@@ -22,6 +22,9 @@ admin_api = "admin_api:main"
 metranova_core = { workspace = true }
 
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/admin_api"]
+
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
