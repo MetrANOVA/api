@@ -3,38 +3,120 @@
 mtype: short for metadata type, e.g. node, interface, temperature. Called "slug" in design documents.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from metranova.storage.clickhouse import Clickhouse
+from pydantic import BaseModel
 
-router = APIRouter(tags=["metadata"])
+
+router = APIRouter(tags=["metadata resources"])
 
 
 @router.get("/")
 async def get_metadata_mtypes(req: Request):
+    """List all registered metadata types.
+
+    Returns the slug of each resource type where type is 'metadata'.
+    """
     se: Clickhouse = req.app.state.se
-    print(await se.find_all_resource_types())
-    return [{"type": "node"}, {"type": "interface"}, {"type": "temperature"}]
+    resources = await se.find_all_resource_types()
+    return [{"type": r["slug"]} for r in filter(lambda x: x["type"] == "metadata", resources)]
 
 
 @router.get("/{mtype}")
 async def get_metadata(mtype: str, req: Request):
-    return [
-        {"type": mtype, "id": "node1::intf1"},
-        {"type": mtype, "id": "node1::intf2"},
-    ]
+    """Get the latest version of every record for a given metadata type.
+
+    Uses max(insert_time) per id to return only the most recent version of each record.
+    """
+    se: Clickhouse = req.app.state.se
+
+    result = await se.client.query(f"""
+        SELECT * FROM {se._qualified_table_name(mtype)} WHERE (id, insert_time) IN (
+            SELECT id, max(insert_time) FROM {se._qualified_table_name(mtype)} GROUP BY id
+        )
+    """)
+    return list(result.named_results())
+
+
+class MetadataReqBody(BaseModel):
+    id: str
 
 
 @router.post("/{mtype}")
-async def create_metadata(mtype: str):
-    return {"type": mtype, "id": "node1::intf1", "version": "v1"}
+async def create_metadata(mtype: str, req: Request, metadata: MetadataReqBody):
+    """Create a new versioned metadata record.
+
+    Validates that the metadata type exists and the primary key structure matches.
+    Creates the backing table if it doesn't exist, then inserts a new row with an
+    auto-incremented version ref (e.g. 'my-id__v1').
+    """
+    se: Clickhouse = req.app.state.se
+
+    resource = await se.find_resource_type_by_slug(mtype)
+    if resource is None:
+        raise HTTPException(status_code=400, detail=f"Metadata type '{mtype}' not found in resource types.")
+
+    if len(metadata.id.split("::")) != len(resource["primary_key"]):
+        raise HTTPException(status_code=400, detail=f"Invalid primary key for metadata type '{mtype}'.")
+
+    # If you want to reset the table for testing, uncomment the following line. This will delete all existing metadata of this type.
+    # await se.client.command(f"DROP TABLE IF EXISTS {se._qualified_table_name(mtype)}")
+
+    # Tiny bit of pre-validation
+    await se.client.command(
+        f"CREATE TABLE IF NOT EXISTS {se._qualified_table_name(mtype)} (id String, ref String, insert_time DateTime, updated_at DateTime) ENGINE = MergeTree() ORDER BY id"
+    )
+
+    result = await se.client.query(f"SELECT id, ref FROM {se._qualified_table_name(mtype)} WHERE id = '{metadata.id}' ORDER BY insert_time DESC LIMIT 1")
+    records = list(result.named_results())
+    version = 1
+    if len(records) > 0:
+        version = int(records[0]["ref"].split("__v")[-1]) + 1
+
+    await se.client.command(
+        f"INSERT INTO {se._qualified_table_name(mtype)} (id, ref, insert_time, updated_at) VALUES ('{metadata.id}', '{metadata.id}__v{version}', now(), now())"
+    )
+
+    return {"type": mtype, "id": metadata.id, "ref": f"{metadata.id}__v{version}"}
 
 
 @router.get("/{mtype}/{mid}")
-async def get_metadata(mtype: str, mid: str):
-    """support limit and offset"""
-    return {"type": mtype, "id": mid}
+async def get_metadata(mtype: str, mid: str, req: Request):
+    """Get the version history for a specific metadata record.
+
+    Returns all versions of the record identified by `mid`, showing the latest
+    update for each version ordered by insert_time descending.
+    """
+    se: Clickhouse = req.app.state.se
+
+    result = await se.client.query(f"""
+        SELECT * FROM {se._qualified_table_name(mtype)} WHERE (id, updated_at) IN (
+            SELECT id, max(updated_at) FROM {se._qualified_table_name(mtype)} WHERE id='{mid}' GROUP BY (id, insert_time)
+        ) ORDER BY insert_time DESC
+    """)
+    return list(result.named_results())
 
 
 @router.put("/{mtype}/{mid}/{version}")
-async def update_metadata_version(mtype: str, mid: str, version: str):
-    return {"type": mtype, "id": mid, "version": version}
+async def update_metadata_version(mtype: str, mid: str, version: str, req: Request):
+    """Update a specific version of a metadata record.
+
+    Inserts a new row with the same id, ref, and insert_time but a fresh updated_at
+    timestamp. This follows ClickHouse's append-only pattern instead of in-place updates.
+    """
+    se: Clickhouse = req.app.state.se
+
+    result = await se.client.query(f"""
+        SELECT * FROM {se._qualified_table_name(mtype)} WHERE (id, updated_at) IN (
+            SELECT id, max(updated_at) FROM {se._qualified_table_name(mtype)} WHERE ref='{mid}__v{version}' GROUP BY (id, insert_time)
+        ) ORDER BY insert_time DESC
+    """)
+    record = next(result.named_results(), None)
+    if record is None:
+        raise HTTPException(status_code=400, detail=f"Failed to find metadata for '{mid}__v{version}' in metadata type '{mtype}'.")
+
+    original_insert_time = record["insert_time"]
+    await se.client.command(
+        f"INSERT INTO {se._qualified_table_name(mtype)} (id, ref, insert_time, updated_at) VALUES ('{mid}', '{mid}__v{version}', '{original_insert_time}', now())"
+    )
+    return {"id": mid, "ref": f"{mid}__v{version}"}
