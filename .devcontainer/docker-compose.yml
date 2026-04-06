@@ -157,5 +157,4 @@ services:
 
 volumes:
   clickhouse_data:
-  kafka_data:
   grafana_data:
