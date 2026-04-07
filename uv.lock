@@ -447,11 +447,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "admin-api", editable = "src/admin_api" },
+    { name = "admin-api", editable = "packages/admin_api" },
     { name = "clickhouse-connect", specifier = ">=0.15.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.128.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pipeline", editable = "src/pipeline" },
+    { name = "pipeline", editable = "packages/pipeline" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
 ]
 
