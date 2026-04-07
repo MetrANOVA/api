@@ -12,7 +12,7 @@ members = [
 [[package]]
 name = "admin-api"
 version = "0.1.0"
-source = { editable = "src/admin_api" }
+source = { editable = "packages/admin_api" }
 dependencies = [
     { name = "fastapi" },
     { name = "metranova-core" },
@@ -220,7 +220,7 @@ standard = [
 
 [[package]]
 name = "fastapi-cloud-cli"
-version = "0.15.1"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastar" },
@@ -232,9 +232,9 @@ dependencies = [
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f/f2/fcd66ce245b7e3c3d84ca8717eda8896945fbc17c87a9b03f490ff06ace7/fastapi_cloud_cli-0.15.1.tar.gz", hash = "sha256:71a46f8a1d9fea295544113d6b79f620dc5768b24012887887306d151165745d", size = 43851, upload-time = "2026-03-26T10:23:12.932Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/9b/4c6508ac4d7c080ae35d633172870c7ae5f5cec17e06271172963f1015c8/fastapi_cloud_cli-0.16.0.tar.gz", hash = "sha256:2f785a4d7890734bff977c4cc2ac05204e822198f053c677b135ba716895ee4f", size = 46227, upload-time = "2026-04-07T13:42:21.055Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/11/ecb0d5e1d114e8aaec1cdc8ee2d7b0f54292585067effe2756bde7e7a4b0/fastapi_cloud_cli-0.15.1-py3-none-any.whl", hash = "sha256:b1e8b3b26dc314e180fc0ab67dfd39d7d9fe160d3951081d09184eafaacf5649", size = 32284, upload-time = "2026-03-26T10:23:14.151Z" },
+    { url = "https://files.pythonhosted.org/packages/85/70/c9667c61191a296a93d2e8717b47162af1b666e252750b1bbb80c15c9526/fastapi_cloud_cli-0.16.0-py3-none-any.whl", hash = "sha256:ebfa3bc0f1077a89ef7c258fba4c23fe2acc7e15e96dd089b59c630559e018d0", size = 33205, upload-time = "2026-04-07T13:42:19.594Z" },
 ]
 
 [[package]]
@@ -447,11 +447,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "admin-api", editable = "src/admin_api" },
+    { name = "admin-api", editable = "packages/admin_api" },
     { name = "clickhouse-connect", specifier = ">=0.15.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.128.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pipeline", editable = "src/pipeline" },
+    { name = "pipeline", editable = "packages/pipeline" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
 ]
 
@@ -491,7 +491,7 @@ wheels = [
 [[package]]
 name = "pipeline"
 version = "0.1.0"
-source = { editable = "src/pipeline" }
+source = { editable = "packages/pipeline" }
 dependencies = [
     { name = "metranova-core" },
 ]
@@ -622,7 +622,7 @@ wheels = [
 
 [[package]]
 name = "pytest"
-version = "9.0.2"
+version = "9.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
@@ -631,9 +631,9 @@ dependencies = [
     { name = "pluggy" },
     { name = "pygments" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/db/7ef3487e0fb0049ddb5ce41d3a49c235bf9ad299b6a25d5780a89f19230f/pytest-9.0.2.tar.gz", hash = "sha256:75186651a92bd89611d1d9fc20f0b4345fd827c41ccd5c299a868a05d70edf11", size = 1568901, upload-time = "2025-12-06T21:30:51.014Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/ab/b3226f0bd7cdcf710fbede2b3548584366da3b19b5021e74f5bde2a8fa3f/pytest-9.0.2-py3-none-any.whl", hash = "sha256:711ffd45bf766d5264d487b917733b453d917afd2b0ad65223959f59089f875b", size = 374801, upload-time = "2025-12-06T21:30:49.154Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
 ]
 
 [[package]]

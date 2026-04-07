@@ -25,9 +25,7 @@ pipeline = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-	"src/pipeline",
-	"src/admin_api",
-	".",
+    "packages/*",
 ]
 
 [build-system]
