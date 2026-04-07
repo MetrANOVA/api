@@ -151,11 +151,10 @@ services:
       - ..:/app:cached
     environment:
       CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_DB: metranova
       KAFKA_BROKERS: kafka:9092
 
 volumes:
   clickhouse_data:
-  kafka_data:
   grafana_data:

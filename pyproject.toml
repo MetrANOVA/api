@@ -5,7 +5,10 @@ description = "Shared core package for MetrANOVA services"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "admin_api",
+    "pipeline",
     "clickhouse-connect>=0.15.0",
+    "fastapi[standard]>=0.128.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.13.1",
 ]
@@ -16,11 +19,13 @@ dev = [
 	"pytest>=8.4.0",
 ]
 
+[tool.uv.sources]
+admin-api = { workspace = true }
+pipeline = { workspace = true }
+
 [tool.uv.workspace]
 members = [
-	"packages/pipeline",
-	"packages/admin_api",
-	".",
+	"packages/*"
 ]
 
 [build-system]
@@ -41,3 +46,6 @@ testpaths = [
 line-length = 88
 target-version = ["py314"]
 include = "\\.pyi?$"
+
+[tool.fastapi]
+entrypoint = "admin_api.app:app"

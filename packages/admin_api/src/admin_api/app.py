@@ -7,9 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import admin_api.logs as logs
 from .settings import get_settings
+
 from .routers.resource_type import (
     router as resource_type_router,
 )
+from admin_api.metadata.router import router as metadata_router
 from .context import lifespan
 
 description = """
@@ -49,3 +51,4 @@ async def index():
 
 # Add routers here
 app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])
+app.include_router(metadata_router, prefix="/metadata")

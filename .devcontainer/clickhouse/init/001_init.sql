@@ -19,16 +19,16 @@ id String,                -- Stable external identifier (e.g., 'def_interface_01
     fields Array(Tuple(
         field_name String, 
         field_type String, 
-        nullable Bool DEFAULT true
+        nullable Bool
     )),
     primary_key Array(String),-- e.g., ['interface_ref', 'timestamp']
     partition_by String,      -- e.g., 'toYYYYMM(timestamp)'
     ttl String,               -- e.g., '365 DAY'
-    engine_type String DEFAULT ‘CoalescingMergeTree’,
+    engine_type String DEFAULT 'CoalescingMergeTree',
     is_replicated Bool DEFAULT true,
     
     updated_at DateTime DEFAULT now()
-) ENGINE = ReplicatedMergeTree()
+) ENGINE = MergeTree()
 ORDER BY (ref);
 
 CREATE TABLE IF NOT EXISTS metranova.transformer (
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS metranova.transformer (
     description String,       
     
     updated_at DateTime DEFAULT now()
-) ENGINE = ReplicatedMergeTree()
+) ENGINE = MergeTree()
 ORDER BY (ref);
 
 CREATE TABLE IF NOT EXISTS metranova.transformer_column (
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS metranova.transformer_column (
         action String, 
         arguments Map(String, String) 
     ))
-) ENGINE = ReplicatedMergeTree()
+) ENGINE = MergeTree()
 ORDER BY (transformer_ref, target_column, match_field, match_value);
 
 
