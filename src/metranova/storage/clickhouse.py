@@ -275,7 +275,7 @@ class Clickhouse(StorageEngine):
                 parameters=[slug],
             )
             if result.result_rows and len(result.result_rows) > 0:
-                return result.result_rows[0]
+                return next(iter(result.named_results()))
             return None
         except Exception as e:
             logger.error(f"Error checking for existing slug '{slug}': {e}")
