@@ -5,7 +5,10 @@ from subprocess import run
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
-    result = run(["uv", "run", "--package", "pipeline", "pipeline"], cwd=repo_root)
+    result = run(
+        ["uv", "run", "--package", "pipeline", "python", "-m", "pipeline"],
+        cwd=repo_root,
+    )
     return result.returncode
 
 

@@ -5,8 +5,8 @@
 This repository uses a `uv` workspace with three packages:
 
 - `metranova_core` (workspace root `.`): shared code in `src/metranova`
-- `admin_api` (`packages/admin_api`): admin service package
-- `pipeline` (`packages/pipeline`): pipeline service package
+- `admin_api` (`src/admin_api`): admin service package
+- `pipeline` (`src/pipeline`): pipeline service package
 
 Both `admin_api` and `pipeline` depend on the workspace `metranova_core` package and call shared logic from `metranova`.
 
@@ -15,7 +15,7 @@ Both `admin_api` and `pipeline` depend on the workspace `metranova_core` package
 - `python bin/start-admin-api.py`
 - `python bin/start-pipeline.py`
 
-Each `bin/` script runs `uv run --package <package> <script>` so the correct workspace package and dependencies are used.
+Each `bin/` script runs the package module form (`python -m <package>`) via `uv run --package <package> ...` so the correct workspace package and dependencies are used.
 
 ## Running tests
 
@@ -26,8 +26,8 @@ Run all package tests:
 Run tests per package:
 
 - `uv run --group dev --package metranova_core pytest tests/metranova_core -q`
-- `uv run --group dev --package admin_api pytest packages/admin_api/tests -q`
-- `uv run --group dev --package pipeline pytest packages/pipeline/tests -q`
+- `uv run --group dev --package admin_api pytest src/admin_api/tests -q`
+- `uv run --group dev --package pipeline pytest src/pipeline/tests -q`
 
 ## Formatting
 

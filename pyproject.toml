@@ -25,7 +25,9 @@ pipeline = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-	"packages/*"
+	"src/pipeline",
+	"src/admin_api",
+	".",
 ]
 
 [build-system]
@@ -38,8 +40,8 @@ packages = ["src/metranova"]
 [tool.pytest.ini_options]
 testpaths = [
 	"tests/metranova_core",
-	"packages/admin_api/tests",
-	"packages/pipeline/tests",
+	"src/admin_api/tests",
+	"src/pipeline/tests",
 ]
 
 [tool.black]
