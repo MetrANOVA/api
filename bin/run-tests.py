@@ -25,8 +25,8 @@ def main() -> int:
 
     suites = [
         ("metranova_core", "tests/metranova_core"),
-        ("admin_api", "packages/admin_api/tests"),
-        ("pipeline", "packages/pipeline/tests"),
+        ("admin_api", "src/admin_api/tests"),
+        ("pipeline", "src/pipeline/tests"),
     ]
 
     for package, test_path in suites:

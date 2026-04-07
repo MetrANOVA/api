@@ -1,10 +1,13 @@
 [project]
-name = "pipeline"
+name = "admin_api"
 version = "0.1.0"
-description = "Pipeline package"
+description = "Admin API package"
 requires-python = ">=3.14"
 dependencies = [
 	"metranova_core",
+	"fastapi (>=0.120.0,<0.128.1)",
+    "uvicorn[standard] (>=0.34.0,<0.35.0)",
+    "python-json-logger>=3.3.0",
 ]
 
 [dependency-groups]
@@ -13,11 +16,14 @@ dev = [
 ]
 
 [project.scripts]
-pipeline = "pipeline:main"
+admin_api = "admin_api:main"
 
 [tool.uv.sources]
 metranova_core = { workspace = true }
 
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/admin_api"]
 
 [build-system]
 requires = ["hatchling>=1.25.0"]
