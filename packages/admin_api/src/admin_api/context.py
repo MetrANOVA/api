@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 
-from metranova.storage.clickhouse import Clickhouse
+from metranova_core.storage.clickhouse import Clickhouse
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 import logging
 from fastapi import APIRouter, HTTPException, Depends
 
-from metranova.storage.clickhouse import Clickhouse
-from metranova.storage.base import CollectionField
+from metranova_core.storage.clickhouse import Clickhouse
+from metranova_core.storage.base import CollectionField
 from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 
@@ -25,19 +25,24 @@ async def create_resource_type(
         for field in request.fields
     ]
 
-    (success, msg) = await se.create_resource_type(
-        request.name,
-        request.slug,
-        request.collection_type,
-        request.consumer_type,
-        request.consumer_config,
-        fields,
-        request.primary_key,
-        request.partition_by,
-        request.ttl,
-        request.engine_type,
-        request.is_replicated,
-    )
+    slug = request.name.lower().replace(' ', '-')
+    try:
+        (success, msg) = await se.create_resource_type(
+            request.name,
+            slug,
+            request.collection_type,
+            request.consumer_type,
+            request.consumer_config,
+            fields,
+            request.primary_key,
+            request.ttl,
+            request.engine_type,
+            request.is_replicated,
+        )
+    except Exception as e:
+        logger.exception(e)
+        success = False
+        msg = "error creating resource type " + str(e)
 
     if success:
         return {"message": msg}
@@ -52,7 +57,11 @@ async def create_resource_type(
 async def get_all_resource_types(
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    results = await se.find_all_resource_types()
+    try:
+        results = await se.find_all_resource_types()
+    except Exception as e:
+        logger.exception(e)
+        results = None
     if results is None:
         raise HTTPException(status_code=500, detail="Error fetching all resource types")
     return results
@@ -63,7 +72,12 @@ async def get_resource_type_by_slug(
     slug: str,
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    result = await se.find_resource_type_by_slug(slug)
+    try:
+        result = await se.find_resource_type_by_slug(slug)
+    except Exception as e:
+        logger.exception(e)
+        result = None
+        
     if result is None:
         raise HTTPException(
             status_code=404,
@@ -97,7 +111,12 @@ async def get_resource_type_schema_by_slug(
     slug: str,
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    schema = await se.find_resource_type_schema_by_slug(slug)
+    try:
+        schema = await se.find_resource_type_schema_by_slug(slug)
+    except Exception as e:
+        logger.exception(e)
+        schema = None
+        
     if schema is None:
         raise HTTPException(
             status_code=404,
@@ -112,21 +131,26 @@ async def update_resource_type_by_slug(
     request: UpdateResourceTypeRequest,
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    fields = [
-        CollectionField(
-            field_name=field.field_name,
-            field_type=field.field_type,
-            nullable=field.nullable,
-        )
-        for field in request.fields
-    ]
+    try:
+        fields = [
+            CollectionField(
+                field_name=field.field_name,
+                field_type=field.field_type,
+                nullable=field.nullable,
+            )
+            for field in request.fields
+        ]
 
-    success, message = await se.update_resource_type(
-        slug=slug,
-        fields=fields,
-        consumer_config_updates=request.consumer_config,
-        ext_updates=request.ext,
-    )
+        success, message = await se.update_resource_type(
+            slug=slug,
+            fields=fields,
+            consumer_config_updates=request.consumer_config,
+            ext_updates=request.ext,
+        )
+    except Exception as e:
+        logger.exception(e)
+        success = False
+        message = "error updating resource type " + str(e)
 
     if not success:
         if "not found" in message.lower():

@@ -4,7 +4,7 @@ slug: short for metadata type, e.g. node, interface, temperature. Called "slug" 
 """
 
 from fastapi import APIRouter, Request, HTTPException
-from metranova.storage.clickhouse import Clickhouse
+from metranova_core.storage.clickhouse import Clickhouse
 from pydantic import BaseModel
 
 

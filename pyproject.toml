@@ -33,13 +33,13 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/metranova"]
+packages = ["src/metranova_core"]
 
 [tool.pytest.ini_options]
 testpaths = [
 	"tests/metranova_core",
-	"src/admin_api/tests",
-	"src/pipeline/tests",
+	"packages/admin_api/tests",
+	"packages/pipeline/tests",
 ]
 
 [tool.black]

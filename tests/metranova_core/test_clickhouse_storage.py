@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova.storage.base import CollectionField
-from metranova.storage.clickhouse import Clickhouse
+from metranova_core.storage.base import CollectionField
+from metranova_core.storage.clickhouse import Clickhouse
 
 
 class DummySyncClient:
@@ -100,7 +100,7 @@ def test_connect_creates_async_client_and_pings(monkeypatch):
         return async_client
 
     monkeypatch.setattr(
-        "metranova.storage.clickhouse.clickhouse_connect.create_async_client",
+        "metranova_core.storage.clickhouse.clickhouse_connect.create_async_client",
         fake_create_async_client,
     )
 
@@ -141,6 +141,11 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
 
     storage.client.query = mock_query
 
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
     fields = [
         CollectionField(field_name="if_name", field_type="String", nullable=True),
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
@@ -155,7 +160,6 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
             consumer_config={"topic": "snmp.metrics"},
             fields=fields,
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
@@ -173,6 +177,49 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     ]
 
 
+def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Array", "Nullable", "LowCardinality"]
+
+    storage._get_ch_types = mock_get_ch_types
+
+    fields = [
+        CollectionField(field_name="if_name", field_type="string", nullable=True),
+        CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
+    ]
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Alias",
+            slug="interface-alias",
+            collection_type="data",
+            consumer_type="kafka",
+            consumer_config={"topic": "snmp.metrics"},
+            fields=fields,
+            primary_key=["if_name"],
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is True
+    call = storage.client.insert_calls[0]
+    assert call["data"][0][7] == [
+        ("if_name", "String", True),
+        ("aliases", "Array(String)", True),
+    ]
+
+
 def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -185,6 +232,11 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     async def failing_insert(**kwargs):
         raise RuntimeError("insert failed")
@@ -200,7 +252,6 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", True)],
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
@@ -224,6 +275,11 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
 
     storage.client.query = mock_query
 
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
     async def failing_command(query):
         raise RuntimeError("DDL failed")
 
@@ -238,7 +294,6 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", True)],
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
@@ -284,7 +339,6 @@ def test_create_data_table_executes_expected_query(monkeypatch):
         storage.create_data_table(
             slug="interface_traffic",
             primary_key=["if_name", "timestamp"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
             engine="MergeTree()",
             fields=[
@@ -301,7 +355,7 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     assert "`if_name` String NOT NULL" in query
     assert "`rx_bps` Float64" in query
     assert "PRIMARY KEY (collector_id, `if_name`, `timestamp`)" in query
-    assert "PARTITION BY toYYYYMM(timestamp)" in query
+    assert "PARTITION BY toYYYYMM(insert_time)" in query
     assert "ORDER BY (collector_id, `if_name`, `timestamp`)" in query
     assert "TTL insert_time + INTERVAL 365 DAY" in query
     assert "insert_time DateTime DEFAULT now()," in query
@@ -320,7 +374,6 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
                 ("site", "String", True),
             ],
             engine="MergeTree()",
-            partition_by="toYYYYMM(insert_time)",
             primary_key=["hostname"],
         )
     )
@@ -377,7 +430,6 @@ def test_create_data_table_rejects_malicious_primary_key_identifier(monkeypatch)
             storage.create_data_table(
                 slug="interface_traffic",
                 primary_key=["if_name`, now()); DROP TABLE metranova.definition;--"],
-                partition_by="toYYYYMM(timestamp)",
                 ttl="365 DAY",
                 engine="MergeTree()",
                 fields=[("if_name", "String", False)],
@@ -398,7 +450,6 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
                 slug="device_inventory",
                 fields=[("hostname", "String/*bad*/", False)],
                 engine="MergeTree()",
-                partition_by="toYYYYMM(insert_time)",
                 primary_key=["hostname"],
             )
         )
@@ -592,7 +643,6 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", True)],
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
         )
     )
@@ -669,7 +719,6 @@ def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
         "consumer_config": "{}",
         "fields": [("ip", "String", False)],
         "primary_key": ["ip"],
-        "partition_by": "toYYYYMM(insert_time)",
         "ttl": "365 DAY",
         "engine_type": "MergeTree()",
         "is_replicated": True,

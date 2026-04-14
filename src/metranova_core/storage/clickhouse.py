@@ -69,6 +69,10 @@ class Clickhouse(StorageEngine):
 
     async def create_database(self):
         """Create the target database if it doesn't exist"""
+        if not await self.is_connected():
+            logger.error("Not connected to database")
+            await self.connect()
+        
         if self.database is None:
             logger.warning("No database name specified, skipping database creation")
             return
@@ -115,6 +119,20 @@ class Clickhouse(StorageEngine):
             raise ValueError(f"Invalid column type: {field_type}")
         return value
 
+    def _canonicalize_column_type(self, field_type: str, valid_types: list[str]) -> str:
+        value = self._validated_column_type(field_type)
+        valid_lookup = {valid_type.lower(): valid_type for valid_type in valid_types}
+        type_token_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+        def replace_token(match: re.Match[str]) -> str:
+            token = match.group(0)
+            canonical = valid_lookup.get(token.lower())
+            if canonical is None:
+                raise RuntimeError(f"{field_type} is not a valid ClickHouse column type")
+            return canonical
+
+        return type_token_pattern.sub(replace_token, value)
+
     async def create_resource_type(
         self,
         name: str,
@@ -124,7 +142,6 @@ class Clickhouse(StorageEngine):
         consumer_config: dict,
         fields: list[CollectionField],
         primary_key: list[str],
-        partition_by: str,
         ttl: str,
         engine_type="CoalescingMergeTree",
         is_replicated=True,
@@ -147,6 +164,10 @@ class Clickhouse(StorageEngine):
         definition_id = f"def_{slug}"
         ref = f"{definition_id}__v1"
 
+        field_types = await self._get_ch_types()
+        for f in fields:
+            f.field_type = self._canonicalize_column_type(f.field_type, field_types)
+
         # Validate primary key is listed as field
         primary_fields = [f for f in fields if f.field_name in primary_key]
         if len(primary_fields) != len(primary_key):
@@ -163,11 +184,11 @@ class Clickhouse(StorageEngine):
         try:
             if collection_type == CollectionType.DATA:
                 await self.create_data_table(
-                    slug, primary_key, partition_by, ttl, engine_type, fields_tuple
+                    slug, primary_key, ttl, engine_type, fields_tuple
                 )
             elif collection_type == CollectionType.METADATA:
                 await self.create_meta_table(
-                    slug, fields_tuple, engine_type, partition_by, primary_key
+                    slug, fields_tuple, engine_type, primary_key
                 )
         except Exception as e:
             logger.exception(f"Error while creating table for '{slug}': {e}")
@@ -183,7 +204,7 @@ class Clickhouse(StorageEngine):
             json.dumps(consumer_config),
             fields_tuple,
             primary_key,
-            partition_by,
+            "toYYYYMM(insert_time)",
             ttl,
             engine_type,
             is_replicated,
@@ -274,8 +295,15 @@ class Clickhouse(StorageEngine):
                 f"SELECT * FROM {self.database}.definition WHERE slug = %s ORDER BY updated_at DESC LIMIT 1",
                 parameters=[slug],
             )
-            if result.result_rows and len(result.result_rows) > 0:
-                return next(iter(result.named_results()))
+            if hasattr(result, "named_results"):
+                named_rows = list(result.named_results())
+                if named_rows:
+                    return named_rows[0]
+
+            rows = getattr(result, "result_rows", None)
+            if rows and len(rows) > 0:
+                return rows[0]
+
             return None
         except Exception as e:
             logger.error(f"Error checking for existing slug '{slug}': {e}")
@@ -379,7 +407,6 @@ class Clickhouse(StorageEngine):
         self,
         slug: str,
         primary_key: list[str],
-        partition_by: str,
         ttl: str,
         engine: str,
         fields: list[tuple[str, str, bool]],
@@ -410,7 +437,7 @@ class Clickhouse(StorageEngine):
         ENGINE = {engine}
         ORDER BY (collector_id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
-        PARTITION BY {partition_by}
+        PARTITION BY toYYYYMM(insert_time)
         TTL insert_time + INTERVAL {ttl};
         """
 
@@ -426,7 +453,6 @@ class Clickhouse(StorageEngine):
         slug: str,
         fields: list[tuple[str, str, bool]],
         engine: str,
-        partition_by: str,
         primary_key: list[str],
     ):
         field_columns = []
@@ -457,7 +483,7 @@ class Clickhouse(StorageEngine):
         ENGINE = {engine}
         ORDER BY (id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (id, {', '.join(safe_primary_keys)})
-        PARTITION BY {partition_by};
+        PARTITION BY toYYYYMM(insert_time);
         """
 
         logger.info(query)
@@ -624,3 +650,17 @@ class Clickhouse(StorageEngine):
             ORDER BY ref
         """
         )
+
+    async def _get_ch_types(self):
+        names = await self.client.query('SELECT name FROM system.data_type_families')
+        if hasattr(names, "named_results"):
+            results = list(names.named_results())
+            types = [row["name"] for row in results if "name" in row]
+        elif hasattr(names, "result_rows"):
+            types = [row[0] for row in names.result_rows if row]
+        elif hasattr(names, "result_columns"):
+            types = list(names.result_columns[0]) if names.result_columns else []
+        else:
+            types = []
+        logger.info(types)
+        return types

@@ -1,8 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from metranova.storage.base import CollectionField, CollectionType, ConsumerType
-from metranova.storage.clickhouse import Clickhouse
+from metranova_core import CollectionField, CollectionType, ConsumerType
+from metranova_core import Clickhouse
 
 
 class FakeAsyncClient:
@@ -20,11 +20,11 @@ class FakeAsyncClient:
 
     async def command(self, query: str):
         self.command_calls.append(query)
-        if "CREATE TABLE IF NOT EXISTS metranova.definition" in query:
+        if "CREATE TABLE IF NOT EXISTS" in query and ".definition" in query:
             self.definition_exists = True
 
     async def insert(self, database, table, data, column_names):
-        if database == "metranova" and table == "definition":
+        if table == "definition":
             for row in data:
                 normalized = list(row)
                 normalized.append("2026-04-02 00:00:00")
@@ -33,21 +33,38 @@ class FakeAsyncClient:
     async def query(self, query: str, parameters=None):
         normalized_query = " ".join(query.strip().split())
 
-        if normalized_query.startswith("EXISTS TABLE metranova.definition"):
+        if normalized_query.startswith("EXISTS TABLE") and ".definition" in normalized_query:
             return SimpleNamespace(result_rows=[[1 if self.definition_exists else 0]])
 
-        if normalized_query.startswith(
-            "SELECT * FROM metranova.definition WHERE slug = %s"
-        ):
+        if "SELECT * FROM" in normalized_query and ".definition WHERE slug = %s" in normalized_query:
             slug = parameters[0]
             candidates = [row for row in self.definition_rows if row[3] == slug]
             row = candidates[-1] if candidates else None
-            return SimpleNamespace(result_rows=[row] if row else [])
+            named_rows = []
+            if row:
+                keys = [
+                    "id",
+                    "ref",
+                    "name",
+                    "slug",
+                    "type",
+                    "consumer_type",
+                    "consumer_config",
+                    "fields",
+                    "primary_key",
+                    "partition_by",
+                    "ttl",
+                    "engine_type",
+                    "is_replicated",
+                    "updated_at",
+                ]
+                named_rows = [dict(zip(keys, row))]
+            return SimpleNamespace(
+                result_rows=[row] if row else [],
+                named_results=lambda: iter(named_rows),
+            )
 
-        if (
-            "FROM metranova.definition" in normalized_query
-            and "SELECT" in normalized_query
-        ):
+        if "SELECT" in normalized_query and ".definition" in normalized_query:
             return SimpleNamespace(result_rows=self.definition_rows)
 
         if normalized_query.startswith("DESCRIBE TABLE"):
@@ -74,6 +91,10 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     success, message = asyncio.run(
         storage.create_resource_type(
@@ -87,7 +108,6 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
                 CollectionField("timestamp", "DateTime64", False),
             ],
             primary_key=["if_name", "timestamp"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
             engine_type="MergeTree()",
             is_replicated=True,
@@ -103,7 +123,7 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
 
     by_slug = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
     assert by_slug is not None
-    assert by_slug[3] == "interface-traffic"
+    assert by_slug["slug"] == "interface-traffic"
 
     schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
     assert schema is not None
@@ -115,6 +135,10 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     asyncio.run(
         storage.create_resource_type(
@@ -125,7 +149,6 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
             consumer_config={"topic": "snmp.metrics", "ext": {"owner": "ops"}},
             fields=[CollectionField("ip", "String", False)],
             primary_key=["ip"],
-            partition_by="toYYYYMM(insert_time)",
             ttl="365 DAY",
             engine_type="MergeTree()",
             is_replicated=True,
@@ -158,6 +181,10 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     first = asyncio.run(
         storage.create_resource_type(
@@ -168,7 +195,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", False)],
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
             engine_type="MergeTree()",
             is_replicated=True,
@@ -183,7 +209,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
             consumer_config={"topic": "snmp.metrics"},
             fields=[CollectionField("if_name", "String", False)],
             primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
             engine_type="MergeTree()",
             is_replicated=True,
