@@ -49,7 +49,6 @@ class StorageEngine(ABC):
         partition_by: str,
         ttl: str,
         engine_type: str = "CoalescingMergeTree",
-        is_replicated: bool = True,
     ) -> tuple[bool, str]:
         pass
 

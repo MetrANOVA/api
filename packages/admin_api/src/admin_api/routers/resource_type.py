@@ -37,7 +37,6 @@ async def create_resource_type(
             request.primary_key,
             request.ttl,
             request.engine_type,
-            request.is_replicated,
         )
     except Exception as e:
         logger.exception(e)

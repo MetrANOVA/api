@@ -39,7 +39,6 @@ class FakeStorage:
         primary_key,
         ttl,
         engine_type,
-        is_replicated,
     ):
         self.created_payload = {
             "name": name,
@@ -51,7 +50,6 @@ class FakeStorage:
             "primary_key": primary_key,
             "ttl": ttl,
             "engine_type": engine_type,
-            "is_replicated": is_replicated,
         }
         return True, f"Type {name} has been successfully created"
 

@@ -110,7 +110,6 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
             primary_key=["if_name", "timestamp"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 
@@ -151,7 +150,6 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
             primary_key=["ip"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 
@@ -197,7 +195,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
             primary_key=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
     second = asyncio.run(
@@ -211,7 +208,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
             primary_key=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 

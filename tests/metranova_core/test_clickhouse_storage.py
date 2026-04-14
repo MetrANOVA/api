@@ -128,6 +128,48 @@ def test_is_connected_false_when_client_missing(monkeypatch):
     assert asyncio.run(storage.is_connected()) is False
 
 
+def test_create_database_standalone_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {"mode": "standalone", "clusters": []}
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage.create_database())
+
+    assert len(storage.client.command_calls) == 1
+    assert (
+        storage.client.command_calls[0]
+        == "CREATE DATABASE IF NOT EXISTS metranova"
+    )
+
+
+def test_create_database_clustered_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage.create_database())
+
+    assert len(storage.client.command_calls) == 1
+    assert (
+        storage.client.command_calls[0]
+        == "CREATE DATABASE IF NOT EXISTS metranova ON CLUSTER 'cluster-a'"
+    )
+
+
 def test_create_resource_type_inserts_definition_row(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -330,6 +372,27 @@ def test_ensure_definition_table_creates_when_missing(monkeypatch):
     )
 
 
+def test_ensure_definition_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [[0]]
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage._ensure_definition_table())
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
+
+
 def test_create_data_table_executes_expected_query(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -361,6 +424,34 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     assert "insert_time DateTime DEFAULT now()," in query
 
 
+def test_create_data_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(
+        storage.create_data_table(
+            slug="interface_traffic",
+            primary_key=["if_name"],
+            ttl="365 DAY",
+            engine="MergeTree()",
+            fields=[("if_name", "String", False)],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
+
+
 def test_create_meta_table_executes_expected_query(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -386,6 +477,33 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert "PRIMARY KEY (id, `hostname`)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
     assert "ORDER BY (id, `hostname`)" in query
+
+
+def test_create_meta_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(
+        storage.create_meta_table(
+            slug="device_inventory",
+            fields=[("hostname", "String", False)],
+            engine="MergeTree()",
+            primary_key=["hostname"],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
 
 
 def test_add_columns_to_table_rejects_malicious_field_name(monkeypatch):
@@ -721,7 +839,6 @@ def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
         "primary_key": ["ip"],
         "ttl": "365 DAY",
         "engine_type": "MergeTree()",
-        "is_replicated": True,
     }
 
     async def mock_find(slug):

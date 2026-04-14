@@ -77,9 +77,10 @@ class Clickhouse(StorageEngine):
             logger.warning("No database name specified, skipping database creation")
             return
         try:
-            create_db_query = f"CREATE DATABASE IF NOT EXISTS {self.database}"
-            if self.cluster_name:
-                create_db_query += f" ON CLUSTER '{self.cluster_name}'"
+            on_cluster_clause = await self._get_on_cluster_clause()
+            create_db_query = (
+                f"CREATE DATABASE IF NOT EXISTS {self.database}{on_cluster_clause}"
+            )
             logger.debug(f"Creating database with query: {create_db_query}")
             await self.client.command(create_db_query)
             logger.info(f"Database {self.database} is ready")
@@ -144,7 +145,6 @@ class Clickhouse(StorageEngine):
         primary_key: list[str],
         ttl: str,
         engine_type="CoalescingMergeTree",
-        is_replicated=True,
     ) -> tuple[bool, str]:
         if not await self.is_connected():
             return False, "couldn't connect to Clickhouse"
@@ -176,6 +176,10 @@ class Clickhouse(StorageEngine):
 
         fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in fields]
 
+        cluster_info = await self.get_cluster_info()
+        is_replicated = False
+        if cluster_info['mode'] == "clustered":
+            is_replicated = True
         # Create the data/meta table BEFORE writing the definition row.
         # ClickHouse DDL cannot be rolled back, so we establish the table first —
         # if it fails, no definition row is written. If the definition insert later
@@ -423,8 +427,9 @@ class Clickhouse(StorageEngine):
         safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
 
         table_name = f"data_{slug}"
+        on_cluster_clause = await self._get_on_cluster_clause()
         query = f"""
-        CREATE TABLE {self._qualified_table_name(table_name)} 
+        CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause}
         (
             collector_id LowCardinality(String) NOT NULL,
             policy_level LowCardinality(String) NOT NULL,
@@ -467,8 +472,9 @@ class Clickhouse(StorageEngine):
         safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
 
         table_name = f"meta_{slug}"
+        on_cluster_clause = await self._get_on_cluster_clause()
         query = f"""
-        CREATE TABLE {self._qualified_table_name(table_name)} (
+        CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause} (
             id String NOT NULL,
             ref String NOT NULL,
             hash String NOT NULL,
@@ -623,9 +629,11 @@ class Clickhouse(StorageEngine):
         if exists:
             return
 
+        on_cluster_clause = await self._get_on_cluster_clause()
+
         await self.client.command(
-            """
-            CREATE TABLE IF NOT EXISTS metranova.definition
+            f"""
+            CREATE TABLE IF NOT EXISTS metranova.definition{on_cluster_clause}
             (
                 id String,
                 ref String,
@@ -664,3 +672,59 @@ class Clickhouse(StorageEngine):
             types = []
         logger.info(types)
         return types
+
+    async def _get_on_cluster_clause(self) -> str:
+        try:
+            cluster_info = await self.get_cluster_info()
+        except Exception as exc:
+            logger.warning(f"Unable to detect cluster mode, defaulting to standalone: {exc}")
+            return ""
+
+        if cluster_info.get("mode") != "clustered":
+            return ""
+
+        cluster_name = cluster_info.get("cluster_name")
+        if not cluster_name:
+            return ""
+
+        safe_cluster_name = str(cluster_name).replace("'", "\\'")
+        return f" ON CLUSTER '{safe_cluster_name}'"
+
+    async def get_cluster_info(self):
+        result = await self.client.query("""
+            SELECT
+                cluster,
+                shard_num,
+                replica_num,
+                host_name,
+                host_address,
+                port
+            FROM system.clusters
+            ORDER BY cluster, shard_num, replica_num
+        """)
+
+        rows = result.result_rows
+        if not rows:
+            return {"mode": "standalone", "clusters": []}
+
+        valid_rows = []
+        for row in rows:
+            if not row:
+                continue
+            cluster_name = row.get("cluster") if isinstance(row, dict) else row[0]
+            if isinstance(cluster_name, str) and cluster_name:
+                valid_rows.append(row)
+
+        if not valid_rows:
+            return {"mode": "standalone", "clusters": []}
+
+        first_row = valid_rows[0]
+        cluster_name = (
+            first_row.get("cluster") if isinstance(first_row, dict) else first_row[0]
+        )
+
+        return {
+            "mode": "clustered",
+            "cluster_name": cluster_name,
+            "clusters": valid_rows,
+        }
