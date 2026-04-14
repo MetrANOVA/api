@@ -1,5 +1,9 @@
 # MetrANOVA API
 
+## TODO
+
+- [ ] Make [pipeline](https://github.com/MetrANOVA/pipeline/tree/main) a submodule. We'll need to covert it to using uv. https://docs.astral.sh/uv/guides/migration/pip-to-project/#migrating-to-a-uv-project
+
 ## Workspace structure
 
 This repository uses a `uv` workspace with three packages:

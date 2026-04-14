@@ -1,0 +1,3 @@
+[submodule "packages/pipeline"]
+	path = packages/pipeline
+	url = git@github.com:MetrANOVA/pipeline.git
