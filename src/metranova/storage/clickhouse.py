@@ -5,6 +5,8 @@ import os
 import re
 
 from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
+from clickhouse_connect.driver.query import QueryResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,9 @@ class Clickhouse(StorageEngine):
 
     def __init__(self):
         super().__init__()
+
+        self.metadata_engine = "MergeTree"
+        self.data_engine = "CoalescingMergeTree"
 
         # ClickHouse configuration from environment
         self.host = os.getenv("CLICKHOUSE_HOST", "localhost")
@@ -63,6 +68,12 @@ class Clickhouse(StorageEngine):
             logger.info(
                 f"Connected to ClickHouse at {self.host}:{self.port}, database: {self.database}"
             )
+
+            clusters: QueryResult = await self.client.query("select * from system.clusters")
+            if clusters.row_count > 1:
+                logger.info("ClickHouse cluster configuration detected. Using cluster-aware database engines.")
+                self.metadata_engine = "ReplacingMergeTree"
+                self.data_engine = "ReplicatingCoalescingMergeTree"
         except Exception as e:
             logger.error(f"Failed to connect to ClickHouse: {e}")
             raise
@@ -462,7 +473,7 @@ class Clickhouse(StorageEngine):
 
         logger.info(query)
         try:
-            await self.client.command(query)
+            return await self.client.command(query)
         except Exception as e:
             logger.exception(e)
             raise
