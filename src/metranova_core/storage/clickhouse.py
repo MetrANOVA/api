@@ -4,7 +4,7 @@ import logging
 import os
 import re
 
-from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
+from .base import StorageEngine, CollectionField, MetaCollectionField, CollectionType, ConsumerType
 
 logger = logging.getLogger(__name__)
 
@@ -138,13 +138,11 @@ class Clickhouse(StorageEngine):
         self,
         name: str,
         slug: str,
-        collection_type: CollectionType,
-        consumer_type: ConsumerType,
-        consumer_config: dict,
-        fields: list[CollectionField],
-        primary_key: list[str],
+        data_fields: list[CollectionField],
+        meta_fields: list[MetaCollectionField],
+        identifier: list[str],
         ttl: str,
-        engine_type="CoalescingMergeTree",
+        engine_type: str = "CoalescingMergeTree",
     ) -> tuple[bool, str]:
         if not await self.is_connected():
             return False, "couldn't connect to Clickhouse"
@@ -155,59 +153,90 @@ class Clickhouse(StorageEngine):
             logger.exception(e)
             return False, "couldn't ensure type definition table exists"
 
-        # Check if resource type with same slug already exists
         existing = await self.find_resource_type_by_slug(slug)
         if existing:
             logger.warning(f"Resource type with slug '{slug}' already exists")
             return False, f"Resource type with slug '{slug}' already exists"
 
         definition_id = f"def_{slug}"
-        ref = f"{definition_id}__v1"
 
-        field_types = await self._get_ch_types()
-        for f in fields:
-            f.field_type = self._canonicalize_column_type(f.field_type, field_types)
+        # Validate and canonicalize data field types against live CH types
+        ch_types = await self._get_ch_types()
+        for f in data_fields:
+            f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
 
-        # Validate primary key is listed as field
-        primary_fields = [f for f in fields if f.field_name in primary_key]
-        if len(primary_fields) != len(primary_key):
-            logger.error("Primary Key and Fields mismatch")
-            return False, "mismatch between primary keys and fields"
+        # Validate meta field types — "reference" is a logical type, accepted as-is
+        for f in meta_fields:
+            if f.field_type.lower() != "reference":
+                f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
 
-        fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in fields]
+        # Verify all identifier fields are present in data fields
+        data_field_names = {f.field_name for f in data_fields}
+        missing = [key for key in identifier if key not in data_field_names]
+        if missing:
+            logger.error(f"Identifier fields missing from data fields: {missing}")
+            return False, f"identifier fields not found in data fields: {missing}"
+
+        data_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in data_fields]
+        meta_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in meta_fields]
 
         cluster_info = await self.get_cluster_info()
-        is_replicated = False
-        if cluster_info['mode'] == "clustered":
-            is_replicated = True
-        # Create the data/meta table BEFORE writing the definition row.
-        # ClickHouse DDL cannot be rolled back, so we establish the table first —
-        # if it fails, no definition row is written. If the definition insert later
-        # fails we are left with an orphaned table (recoverable), rather than a
-        # definition row pointing at a non-existent table (not recoverable).
-        try:
-            if collection_type == CollectionType.DATA:
-                await self.create_data_table(
-                    slug, primary_key, ttl, engine_type, fields_tuple
-                )
-            elif collection_type == CollectionType.METADATA:
-                await self.create_meta_table(
-                    slug, fields_tuple, engine_type, primary_key
-                )
-        except Exception as e:
-            logger.exception(f"Error while creating table for '{slug}': {e}")
-            return False, "Error during table creation"
+        is_replicated = cluster_info["mode"] == "clustered"
 
-        row = [
+        # Create both tables BEFORE writing definition rows.
+        # ClickHouse DDL cannot be rolled back — tables first so that a failed
+        # definition insert leaves orphaned tables (recoverable) rather than
+        # definition rows pointing at non-existent tables (not recoverable).
+        try:
+            await self.create_data_table(slug, identifier, ttl, engine_type, data_fields_tuple)
+        except Exception as e:
+            logger.exception(f"Error creating data table for '{slug}': {e}")
+            return False, "Error during data table creation"
+
+        try:
+            # Reference-type fields are logical; skip them in the physical DDL
+            physical_meta_fields = [
+                (f.field_name, f.field_type, f.nullable)
+                for f in meta_fields
+                if f.field_type.lower() != "reference"
+            ]
+            await self.create_meta_table(slug, physical_meta_fields, engine_type, identifier)
+        except Exception as e:
+            logger.exception(f"Error creating meta table for '{slug}': {e}")
+            return False, "Error during meta table creation"
+
+        column_names = [
+            "id", "ref", "name", "slug", "type",
+            "consumer_type", "consumer_config",
+            "fields", "primary_key", "partition_by", "ttl", "engine_type", "is_replicated",
+        ]
+
+        data_row = [
             definition_id,
-            ref,
+            f"{definition_id}__v1",
             name,
             slug,
-            collection_type,
-            consumer_type,
-            json.dumps(consumer_config),
-            fields_tuple,
-            primary_key,
+            CollectionType.DATA,
+            "",
+            "{}",
+            data_fields_tuple,
+            identifier,
+            "toYYYYMM(insert_time)",
+            ttl,
+            engine_type,
+            is_replicated,
+        ]
+
+        meta_row = [
+            f"{definition_id}_meta",
+            f"{definition_id}_meta__v1",
+            name,
+            slug,
+            CollectionType.METADATA,
+            "",
+            "{}",
+            meta_fields_tuple,
+            identifier,
             "toYYYYMM(insert_time)",
             ttl,
             engine_type,
@@ -218,27 +247,11 @@ class Clickhouse(StorageEngine):
             await self.client.insert(
                 database=self.database,
                 table="definition",
-                data=[row],
-                column_names=[
-                    "id",
-                    "ref",
-                    "name",
-                    "slug",
-                    "type",
-                    "consumer_type",
-                    "consumer_config",
-                    "fields",
-                    "primary_key",
-                    "partition_by",
-                    "ttl",
-                    "engine_type",
-                    "is_replicated",
-                ],
+                data=[data_row, meta_row],
+                column_names=column_names,
             )
         except Exception as e:
-            logger.exception(
-                f"Error during type definition insertion for '{slug}': {e}"
-            )
+            logger.exception(f"Error during type definition insertion for '{slug}': {e}")
             return False, "Error during type definition insertion"
 
         return True, f"Type {name} has been successfully created"
@@ -583,7 +596,7 @@ class Clickhouse(StorageEngine):
             current_def["name"],
             current_def["slug"],
             current_def["type"],
-            current_def["consumer_type"],
+            current_def.get("consumer_type", ""),
             json.dumps(merged_config),
             merged_fields,
             current_def["primary_key"],
@@ -595,23 +608,13 @@ class Clickhouse(StorageEngine):
 
         try:
             await self.client.insert(
-                database="metranova",
+                database=self.database,
                 table="definition",
                 data=[row],
                 column_names=[
-                    "id",
-                    "ref",
-                    "name",
-                    "slug",
-                    "type",
-                    "consumer_type",
-                    "consumer_config",
-                    "fields",
-                    "primary_key",
-                    "partition_by",
-                    "ttl",
-                    "engine_type",
-                    "is_replicated",
+                    "id", "ref", "name", "slug", "type",
+                    "consumer_type", "consumer_config",
+                    "fields", "primary_key", "partition_by", "ttl", "engine_type", "is_replicated",
                 ],
             )
             return True, f"Resource type '{slug}' updated to {new_ref}"

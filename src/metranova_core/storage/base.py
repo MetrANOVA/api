@@ -20,6 +20,13 @@ class CollectionField:
     nullable: bool = True
 
 
+@dataclass
+class MetaCollectionField(CollectionField):
+    """A metadata collection field. Supports 'reference' as a field_type
+    in addition to all standard ClickHouse types."""
+    table: str | None = None
+
+
 class StorageEngine(ABC):
     def __init__(self):
         super().__init__()
@@ -41,12 +48,9 @@ class StorageEngine(ABC):
         self,
         name: str,
         slug: str,
-        collection_type: CollectionType,
-        consumer_type: ConsumerType,
-        consumer_config: dict,
-        fields: list[CollectionField],
-        primary_key: list[str],
-        partition_by: str,
+        data_fields: list[CollectionField],
+        meta_fields: list[MetaCollectionField],
+        identifier: list[str],
         ttl: str,
         engine_type: str = "CoalescingMergeTree",
     ) -> tuple[bool, str]:

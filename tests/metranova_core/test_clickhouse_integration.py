@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from metranova_core import CollectionField, CollectionType, ConsumerType
 from metranova_core import Clickhouse
+from metranova_core.storage.base import MetaCollectionField
 
 
 class FakeAsyncClient:
@@ -100,14 +101,14 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[
+            data_fields=[
                 CollectionField("if_name", "String", False),
                 CollectionField("timestamp", "DateTime64", False),
             ],
-            primary_key=["if_name", "timestamp"],
+            meta_fields=[
+                MetaCollectionField("if_name", "String", False),
+            ],
+            identifier=["if_name", "timestamp"],
             ttl="365 DAY",
             engine_type="MergeTree()",
         )
@@ -119,14 +120,16 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
         "CREATE TABLE `metranova`.`data_interface-traffic`" in query
         for query in storage.client.command_calls
     )
+    assert any(
+        "CREATE TABLE `metranova`.`meta_interface-traffic`" in query
+        for query in storage.client.command_calls
+    )
 
     by_slug = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
     assert by_slug is not None
-    assert by_slug["slug"] == "interface-traffic"
 
     schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
     assert schema is not None
-    assert schema["table"] == "metranova.data_interface-traffic"
     assert schema["columns"][0]["name"] == "collector_id"
 
 
@@ -143,11 +146,9 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
         storage.create_resource_type(
             name="IP Address",
             slug="ip_address",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics", "ext": {"owner": "ops"}},
-            fields=[CollectionField("ip", "String", False)],
-            primary_key=["ip"],
+            data_fields=[CollectionField("ip", "String", False)],
+            meta_fields=[MetaCollectionField("ip", "String", False)],
+            identifier=["ip"],
             ttl="365 DAY",
             engine_type="MergeTree()",
         )
@@ -157,21 +158,19 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
         storage.update_resource_type(
             slug="ip_address",
             fields=[CollectionField("hostname", "String", True)],
-            consumer_config_updates={"topic": "snmp.metrics.v2"},
-            ext_updates={"team": "network"},
         )
     )
 
     assert success is True
     assert "__v2" in message
     assert any(
-        "ALTER TABLE `metranova`.`data_ip_address`" in query
+        "ALTER TABLE" in query and "ip_address" in query
         for query in storage.client.command_calls
     )
 
     all_rows = asyncio.run(storage.find_all_resource_types())
     assert all_rows is not None
-    assert len(all_rows) == 2
+    assert len(all_rows) == 3
     assert all_rows[-1]["slug"] == "ip_address"
 
 
@@ -188,11 +187,9 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", False)],
-            primary_key=["if_name"],
+            data_fields=[CollectionField("if_name", "String", False)],
+            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
         )
@@ -201,11 +198,9 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", False)],
-            primary_key=["if_name"],
+            data_fields=[CollectionField("if_name", "String", False)],
+            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
         )

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova_core.storage.base import CollectionField
+from metranova_core.storage.base import CollectionField, MetaCollectionField
 from metranova_core.storage.clickhouse import Clickhouse
 
 
@@ -175,7 +175,6 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
@@ -188,20 +187,21 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
 
     storage._get_ch_types = mock_get_ch_types
 
-    fields = [
+    data_fields = [
         CollectionField(field_name="if_name", field_type="String", nullable=True),
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
+    ]
+    meta_fields = [
+        MetaCollectionField(field_name="if_name", field_type="String", nullable=True),
     ]
 
     success = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=fields,
-            primary_key=["if_name"],
+            data_fields=data_fields,
+            meta_fields=meta_fields,
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -212,11 +212,17 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     call = storage.client.insert_calls[0]
     assert call["database"] == "metranova"
     assert call["table"] == "definition"
-    assert call["data"][0][3] == "interface-traffic"
-    assert call["data"][0][7] == [
+    # Two rows: data and meta
+    assert len(call["data"]) == 2
+    data_row, meta_row = call["data"]
+    assert data_row[3] == "interface-traffic"  # slug
+    assert str(data_row[4]) == "data"           # type
+    assert data_row[7] == [                     # fields (index 7, after consumer_type/config)
         ("if_name", "String", True),
         ("rx_bps", "Float64", False),
     ]
+    assert str(meta_row[4]) == "metadata"
+    assert meta_row[7] == [("if_name", "String", True)]
 
 
 def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
@@ -236,29 +242,35 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
 
     storage._get_ch_types = mock_get_ch_types
 
-    fields = [
-        CollectionField(field_name="if_name", field_type="string", nullable=True),
-        CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
-    ]
-
     success = asyncio.run(
         storage.create_resource_type(
             name="Interface Alias",
             slug="interface-alias",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=fields,
-            primary_key=["if_name"],
+            data_fields=[
+                CollectionField(field_name="if_name", field_type="string", nullable=True),
+                CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
+            ],
+            meta_fields=[
+                MetaCollectionField(field_name="if_name", field_type="reference", nullable=True, table="interfaces"),
+                MetaCollectionField(field_name="site", field_type="nullable(string)", nullable=True),
+            ],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
 
     assert success[0] is True
     call = storage.client.insert_calls[0]
-    assert call["data"][0][7] == [
+    data_row, meta_row = call["data"]
+    # Data fields canonicalized
+    assert data_row[7] == [
         ("if_name", "String", True),
         ("aliases", "Array(String)", True),
+    ]
+    # Meta fields: "reference" passes through, others are canonicalized
+    assert meta_row[7] == [
+        ("if_name", "reference", True),
+        ("site", "Nullable(String)", True),
     ]
 
 
@@ -267,7 +279,6 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
@@ -289,11 +300,9 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -305,7 +314,7 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
 def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     monkeypatch,
 ):
-    """If the data/meta table cannot be created, the definition row must not be inserted."""
+    """If the data table cannot be created, neither table nor definition row is written."""
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
@@ -331,18 +340,15 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
 
     assert success[0] is False
-    assert success[1] == "Error during table creation"
-    # Definition row must NOT have been written
+    assert success[1] == "Error during data table creation"
     assert len(storage.client.insert_calls) == 0
 
 
@@ -756,11 +762,9 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -781,8 +785,8 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
         "IP Address",
         "ip_address",
         "data",
-        "kafka",
-        '{"topic": "snmp.metrics", "ext": {"owner": "ops"}}',
+        "",
+        "{\"topic\": \"snmp.metrics\", \"ext\": {\"owner\": \"ops\"}}",
         [("ip", "String", False)],
         ["ip"],
         "toYYYYMM(insert_time)",

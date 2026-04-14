@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 
 from metranova_core.storage.clickhouse import Clickhouse
-from metranova_core.storage.base import CollectionField
+from metranova_core.storage.base import CollectionField, MetaCollectionField
 from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 
@@ -16,13 +16,22 @@ async def create_resource_type(
     request: CreateResourceTypeRequest,
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    fields = [
+    data_fields = [
         CollectionField(
-            field_name=field.field_name,
-            field_type=field.field_type,
-            nullable=field.nullable,
+            field_name=f.field_name,
+            field_type=f.field_type,
+            nullable=f.nullable,
         )
-        for field in request.fields
+        for f in request.data.fields
+    ]
+    meta_fields = [
+        MetaCollectionField(
+            field_name=f.field_name,
+            field_type=f.field_type,
+            nullable=f.nullable,
+            table=f.table,
+        )
+        for f in request.neta.fields
     ]
 
     slug = request.name.lower().replace(' ', '-')
@@ -30,13 +39,10 @@ async def create_resource_type(
         (success, msg) = await se.create_resource_type(
             request.name,
             slug,
-            request.collection_type,
-            request.consumer_type,
-            request.consumer_config,
-            fields,
-            request.primary_key,
+            data_fields,
+            meta_fields,
+            request.identifier,
             request.ttl,
-            request.engine_type,
         )
     except Exception as e:
         logger.exception(e)

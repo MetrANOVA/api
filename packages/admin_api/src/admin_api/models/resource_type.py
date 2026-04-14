@@ -1,4 +1,4 @@
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -10,18 +10,22 @@ class ResourceFieldRequest(BaseModel):
     field_name: str = Field(min_length=1)
     field_type: str = Field(min_length=1)
     nullable: bool = True
+    
+class MetaFieldRequest(ResourceFieldRequest):
+    table: str | None = None
+
+class DataFields(BaseModel):
+    fields: list[ResourceFieldRequest] = Field(min_length=1)
+    
+class MetaFields(BaseModel):
+    fields: list[MetaFieldRequest] = Field(min_length=1)
 
 class CreateResourceTypeRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])
-    collection_type: CollectionType
-    consumer_type: ConsumerType
-    consumer_config: dict[str, Any] = Field(default_factory=dict)
-    fields: list[ResourceFieldRequest] = Field(min_length=1)
-    primary_key: list[str] = Field(min_length=1)
+    data: DataFields = Field()
+    neta: MetaFields = Field()
+    identifier: list[str] = Field(min_length=1)
     ttl: str = Field(min_length=1, examples=["365 DAY"])
-    engine_type: str = Field(default="CoalescingMergeTree", min_length=1)
-    is_replicated: bool = True
-
 
     @field_validator("ttl")
     @classmethod
@@ -38,16 +42,22 @@ class CreateResourceTypeRequest(BaseModel):
         return v.upper()
 
     @model_validator(mode="after")
-    def validate_primary_key_fields(self):
-        field_names = [field.field_name for field in self.fields]
-        if len(field_names) != len(set(field_names)):
-            raise ValueError("fields must have unique field_name values")
+    def validate_fields_and_identifiers(self):
+        data_field_names = [f.field_name for f in self.data.fields]
+        if len(data_field_names) != len(set(data_field_names)):
+            raise ValueError("data fields must have unique field_name values")
 
-        missing_primary_keys = [
-            key for key in self.primary_key if key not in field_names
+        meta_field_names = [f.field_name for f in self.neta.fields]
+        if len(meta_field_names) != len(set(meta_field_names)):
+            raise ValueError("meta fields must have unique field_name values")
+
+        missing_identifiers = [
+            key for key in self.identifier if key not in data_field_names
         ]
-        if missing_primary_keys:
-            raise ValueError("primary_key values must exist in fields.field_name")
+        if missing_identifiers:
+            raise ValueError(
+                f"identifier fields must exist in data fields: {missing_identifiers}"
+            )
 
         return self
 
