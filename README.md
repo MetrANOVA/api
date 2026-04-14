@@ -6,7 +6,7 @@ This repository uses a `uv` workspace with three packages:
 
 - `metranova_core` (workspace root `.`): shared code in `src/metranova`
 - `admin_api` (`src/admin_api`): admin service package
-- `pipeline` (`src/pipeline`): pipeline service package
+- `pipeline` (`src/pipeline`): pipeline service package. This references [MetrANOVA/pipeline](https://github.com/MetrANOVA/pipeline).
 
 Both `admin_api` and `pipeline` depend on the workspace `metranova_core` package and call shared logic from `metranova`.
 
@@ -70,6 +70,11 @@ The devcontainer spins up a full local development environment using Docker Comp
 - [VS Code](https://code.visualstudio.com/) with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 
 ### Starting the environment
+
+If you haven't already load git submodules.
+```
+make setup
+```
 
 Open the project in VS Code and click **Reopen in Container** when prompted, or run:
 
