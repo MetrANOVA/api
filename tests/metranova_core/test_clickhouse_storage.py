@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from metranova.storage.base import CollectionField
-from metranova.storage.clickhouse import Clickhouse
+from metranova.storage.clickhouse import Clickhouse, MetadataField
 
 
 class DummySyncClient:
@@ -35,9 +35,25 @@ class DummyAsyncClient:
     async def insert(self, **kwargs):
         self.insert_calls.append(kwargs)
 
+    _DEFINITION_COLUMNS = [
+        "id", "ref", "name", "slug", "type", "consumer_type",
+        "consumer_config", "fields", "primary_key", "partition_by",
+        "ttl", "engine_type", "is_replicated", "updated_at",
+    ]
+
     async def query(self, query, parameters=None):
         self.query_calls.append((query, parameters))
-        return SimpleNamespace(result_rows=self.query_result)
+        rows = self.query_result
+
+        def named_results():
+            for row in rows:
+                yield dict(zip(DummyAsyncClient._DEFINITION_COLUMNS, row))
+
+        return SimpleNamespace(
+            result_rows=rows,
+            row_count=len(rows),
+            named_results=named_results,
+        )
 
     async def command(self, query):
         self.command_calls.append(query)
@@ -316,8 +332,8 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
         storage.create_meta_table(
             slug="device_inventory",
             fields=[
-                ("hostname", "String", False),
-                ("site", "String", True),
+                MetadataField(name="hostname", type="String", nullable=False),
+                MetadataField(name="site", type="String", nullable=True),
             ],
             engine="MergeTree()",
             partition_by="toYYYYMM(insert_time)",
@@ -396,7 +412,8 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
         asyncio.run(
             storage.create_meta_table(
                 slug="device_inventory",
-                fields=[("hostname", "String/*bad*/", False)],
+                fields=[
+                    MetadataField(name="hostname", type="String/*bad*/", nullable=False)],
                 engine="MergeTree()",
                 partition_by="toYYYYMM(insert_time)",
                 primary_key=["hostname"],
@@ -472,11 +489,9 @@ def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
 
     result = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
 
-    assert result == (
-        "def_interface-traffic",
-        "def_interface-traffic__v1",
-        "Interface Traffic",
-    )
+    assert result["id"] == "def_interface-traffic"
+    assert result["ref"] == "def_interface-traffic__v1"
+    assert result["name"] == "Interface Traffic"
     query, parameters = storage.client.query_calls[0]
     assert "WHERE slug = %s" in query
     assert parameters == ["interface-traffic"]
@@ -515,16 +530,29 @@ def test_find_resource_type_schema_by_slug_returns_schema_dict_for_data(monkeypa
 
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
+            _COLS = [
+                "id", "ref", "name", "slug", "type", "consumer_type",
+                "consumer_config", "fields", "primary_key", "partition_by",
+                "ttl", "engine_type", "is_replicated", "updated_at",
+            ]
+            rows = [
+                (
+                    "def_interface-traffic",
+                    "def_interface-traffic__v1",
+                    "Interface Traffic",
+                    "interface-traffic",
+                    "data",
+                )
+            ]
+
+            def named_results():
+                for r in rows:
+                    yield dict(zip(_COLS, r))
+
             return SimpleNamespace(
-                result_rows=[
-                    (
-                        "def_interface-traffic",
-                        "def_interface-traffic__v1",
-                        "Interface Traffic",
-                        "interface-traffic",
-                        "data",
-                    )
-                ]
+                result_rows=rows,
+                row_count=len(rows),
+                named_results=named_results,
             )
         if "DESCRIBE TABLE" in query:
             return SimpleNamespace(
@@ -571,14 +599,24 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
     async def mock_query(query, parameters=None):
         # EXISTS query returns [[0]] or [[1]]
         if "EXISTS TABLE" in query:
-            return SimpleNamespace(result_rows=[[1]])
+            return SimpleNamespace(result_rows=[[1]], row_count=1)
         # Query for slug returns a result tuple
         if (
             "WHERE slug" in query
             and parameters
             and parameters[0] == "interface-traffic"
         ):
-            return SimpleNamespace(result_rows=[("def_interface-traffic", "...")])
+            rows = [("def_interface-traffic", "...")]
+
+            def named_results():
+                for r in rows:
+                    yield {"id": r[0]}
+
+            return SimpleNamespace(
+                result_rows=rows,
+                row_count=len(rows),
+                named_results=named_results,
+            )
         return await original_query(query, parameters)
 
     storage.client.query = mock_query

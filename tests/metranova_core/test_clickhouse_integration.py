@@ -30,11 +30,17 @@ class FakeAsyncClient:
                 normalized.append("2026-04-02 00:00:00")
                 self.definition_rows.append(tuple(normalized))
 
+    _DEFINITION_COLUMNS = [
+        "id", "ref", "name", "slug", "type", "consumer_type",
+        "consumer_config", "fields", "primary_key", "partition_by",
+        "ttl", "engine_type", "is_replicated", "updated_at",
+    ]
+
     async def query(self, query: str, parameters=None):
         normalized_query = " ".join(query.strip().split())
 
         if normalized_query.startswith("EXISTS TABLE metranova.definition"):
-            return SimpleNamespace(result_rows=[[1 if self.definition_exists else 0]])
+            return SimpleNamespace(result_rows=[[1 if self.definition_exists else 0]], row_count=1)
 
         if normalized_query.startswith(
             "SELECT * FROM metranova.definition WHERE slug = %s"
@@ -42,13 +48,20 @@ class FakeAsyncClient:
             slug = parameters[0]
             candidates = [row for row in self.definition_rows if row[3] == slug]
             row = candidates[-1] if candidates else None
-            return SimpleNamespace(result_rows=[row] if row else [])
+            rows = [row] if row else []
+            cols = FakeAsyncClient._DEFINITION_COLUMNS
+
+            def named_results():
+                for r in rows:
+                    yield dict(zip(cols, r))
+
+            return SimpleNamespace(result_rows=rows, row_count=len(rows), named_results=named_results)
 
         if (
             "FROM metranova.definition" in normalized_query
             and "SELECT" in normalized_query
         ):
-            return SimpleNamespace(result_rows=self.definition_rows)
+            return SimpleNamespace(result_rows=self.definition_rows, row_count=len(self.definition_rows))
 
         if normalized_query.startswith("DESCRIBE TABLE"):
             return SimpleNamespace(
@@ -64,10 +77,11 @@ class FakeAsyncClient:
                     ),
                     ("if_name", "String", None, None, None, None, None),
                     ("timestamp", "DateTime64", None, None, None, None, None),
-                ]
+                ],
+                row_count=3,
             )
 
-        return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[], row_count=0)
 
 
 def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
@@ -103,7 +117,7 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
 
     by_slug = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
     assert by_slug is not None
-    assert by_slug[3] == "interface-traffic"
+    assert by_slug["slug"] == "interface-traffic"
 
     schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
     assert schema is not None

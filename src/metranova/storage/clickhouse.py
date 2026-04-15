@@ -4,12 +4,30 @@ import logging
 import os
 import re
 
+from pydantic import BaseModel
+
+from pydantic import model_validator
+
 from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
 from clickhouse_connect.driver.query import QueryResult
 
 
 logger = logging.getLogger(__name__)
 
+
+class MetadataField(BaseModel):
+    name: str
+    type: str
+    nullable: bool
+    table: str | None = None
+
+    @model_validator(mode='after')
+    def validate_reference(self) -> 'MetadataField':
+        if self.type == 'reference' and self.table is None:
+            raise ValueError('table is required when type is reference')
+        if self.type != 'reference' and self.table is not None:
+            raise ValueError('table should only be provided when type is reference')
+        return self
 
 class Clickhouse(StorageEngine):
     _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -113,6 +131,11 @@ class Clickhouse(StorageEngine):
         if not self._IDENTIFIER_PATTERN.fullmatch(name):
             raise ValueError(f"Invalid identifier: {name}")
         return f"`{name}`"
+
+    def _validated_engine_name(self, engine: str) -> str:
+        if not self._IDENTIFIER_PATTERN.fullmatch(engine):
+            raise ValueError(f"Invalid engine name: {engine}")
+        return engine
 
     def _validated_column_type(self, field_type: str) -> str:
         value = field_type.strip()
@@ -418,7 +441,7 @@ class Clickhouse(StorageEngine):
             {",\n".join(field_columns)},
             ext JSON
         )
-        ENGINE = {engine}
+        ENGINE = {self._validated_engine_name(self.data_engine)}()
         ORDER BY (collector_id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
         PARTITION BY {partition_by}
@@ -435,17 +458,17 @@ class Clickhouse(StorageEngine):
     async def create_meta_table(
         self,
         slug: str,
-        fields: list[tuple[str, str, bool]],
+        fields: list[MetadataField],
         engine: str,
         partition_by: str,
         primary_key: list[str],
     ):
         field_columns = []
         for f in fields:
-            safe_field_name = self._quoted_identifier(f[0])
-            safe_field_type = self._validated_column_type(f[1])
+            safe_field_name = self._quoted_identifier(f.name)
+            safe_field_type = self._validated_column_type(f.type)
             col = f"{safe_field_name} {safe_field_type}"
-            if f[2] is False:
+            if f.nullable is False:
                 col += " NOT NULL"
             field_columns.append(col)
 
@@ -457,7 +480,8 @@ class Clickhouse(StorageEngine):
             id String NOT NULL,
             ref String NOT NULL,
             hash String NOT NULL,
-            insert_time DateTime DEFAULT now() NOT NULL,
+            created_at DateTime DEFAULT now() NOT NULL,
+            updated_at DateTime DEFAULT now() NOT NULL,
             tag Array(LowCardinality(String)), 
             policy_level LowCardinality(String) NOT NULL,
             policy_scope Array(LowCardinality(String)) NOT NULL,
@@ -465,7 +489,7 @@ class Clickhouse(StorageEngine):
             {",\n".join(field_columns)},
             ext JSON
         )
-        ENGINE = {engine}
+        ENGINE = {self._validated_engine_name(self.metadata_engine)}()
         ORDER BY (id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (id, {', '.join(safe_primary_keys)})
         PARTITION BY {partition_by};
@@ -608,8 +632,7 @@ class Clickhouse(StorageEngine):
         if exists:
             return
 
-        await self.client.command(
-            """
+        query = f"""
             CREATE TABLE IF NOT EXISTS metranova.definition
             (
                 id String,
@@ -631,7 +654,7 @@ class Clickhouse(StorageEngine):
                 is_replicated Bool DEFAULT true,
                 updated_at DateTime DEFAULT now()
             )
-            ENGINE = MergeTree()
+            ENGINE = {self._validated_engine_name(self.data_engine)}()
             ORDER BY ref
         """
-        )
+        await self.client.command(query)

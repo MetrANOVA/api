@@ -2,13 +2,80 @@
 
 slug: short for metadata type, e.g. node, interface, temperature. Called "slug" in design documents.
 """
+import logging
 
 from fastapi import APIRouter, Request, HTTPException
-from metranova.storage.clickhouse import Clickhouse
+from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
+
+
+class CreateMetadataTypeReq(BaseModel):
+    name: str
+    identifier: list[str]
+    fields: list[MetadataField]
+
+
+@router.post("/")
+async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
+    """Create a new metadata type.
+
+    This registers a new metadata type in the system by adding an entry to the resource_types table.
+    The slug is auto-generated from the name by lowercasing and replacing spaces with underscores.
+    """
+    se: Clickhouse = req.app.state.se
+
+    for key in body.identifier:
+        if key not in [f.name for f in body.fields]:
+            raise HTTPException(status_code=400, detail=f"Identifier field '{key}' not found in fields.")
+
+    slug = body.name.lower().replace(" ", "_")
+    existing = await se.find_resource_type_by_slug(slug)
+    if existing is not None:
+        raise HTTPException(status_code=400, detail=f"Metadata type with slug '{slug}' already exists.")
+
+    try:
+        await se.create_meta_table(slug, body.fields, "engine", "created_at", body.identifier)
+        await se.client.insert(
+            database=se.database,
+            table="definition",
+            data=[
+                [
+                    f"def_{slug}",
+                    f"def_{slug}__v1",
+                    body.name,
+                    slug,
+                    "metadata",
+                    "kafka",
+                    "{}",
+                    [(f.name, f.type, f.nullable) for f in body.fields],
+                    body.identifier,
+                    "created_at",
+                    "ttl",
+                ]
+            ],
+            column_names=[
+                "id",
+                "ref",
+                "name",
+                "slug",
+                "type",
+                "consumer_type",
+                "consumer_config",
+                "fields",
+                "primary_key",
+                "partition_by",
+                "ttl",
+            ],
+        )
+    except Exception as e:
+        logger.exception(
+            f"Error creating metadata type definition '{slug}': {e}"
+        )
+        raise HTTPException(status_code=400, detail=f"Error creating metadata type definition '{slug}': {e}")
+    return {"type": slug}
 
 
 @router.get("/")
@@ -30,16 +97,35 @@ async def get_metadata(slug: str, req: Request):
     """
     se: Clickhouse = req.app.state.se
 
-    result = await se.client.query(f"""
-        SELECT * FROM %s WHERE (id, created_at) IN (
-            SELECT id, max(created_at) FROM %s GROUP BY id
-        )
-    """, parameters=[se._qualified_table_name(slug), se._qualified_table_name(slug)])
+    result = await se.client.query("""
+        SELECT t.* FROM {db:Identifier}.{table:Identifier} t
+        INNER JOIN (
+            SELECT id, max(created_at) AS max_created_at
+            FROM {db:Identifier}.{table:Identifier}
+            GROUP BY id
+        ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
+        """,
+        parameters={"db": "metranova", "table": f"meta_{slug}"}
+    )
+
     return list(result.named_results())
 
 
 class MetadataReqBody(BaseModel):
     id: str
+
+
+@router.delete("/{slug}")
+async def delete_metadata_type(slug: str, req: Request):
+    """Delete a metadata type and all associated records.
+
+    This drops the backing ClickHouse table and removes the resource type definition.
+    """
+    se: Clickhouse = req.app.state.se
+
+    await se.client.command(f"DROP TABLE IF EXISTS {se._qualified_table_name('meta_'+slug)}", parameters=[])
+    await se.client.command("DELETE FROM definition WHERE slug = %s AND type = 'metadata'", parameters=[slug])
+    return {"detail": f"Metadata type '{slug}' and all associated records have been deleted."}
 
 
 @router.post("/{slug}")
@@ -59,18 +145,16 @@ async def create_metadata(slug: str, req: Request, metadata: MetadataReqBody):
     if len(metadata.id.split("::")) != len(resource["primary_key"]):
         raise HTTPException(status_code=400, detail=f"Invalid primary key for metadata type '{slug}'.")
 
-    # If you want to reset the table for testing, uncomment the following line. This will delete all existing metadata of this type.
-    # await se.client.command(f"DROP TABLE IF EXISTS `%s`", parameters=[se._qualified_table_name(slug)])
+    # # If you want to reset the table for testing, uncomment the following line. This will delete all existing metadata of this type.
+    await se.client.command(f"DROP TABLE IF EXISTS {se._qualified_table_name('meta_'+slug)}", parameters=[])
 
-    # Tiny bit of pre-validation
-    await se.client.command(
-        f"CREATE TABLE IF NOT EXISTS `%s` (id String, ref String, created_at DateTime, updated_at DateTime) ENGINE = MergeTree() ORDER BY id",
-        parameters=[se._qualified_table_name(slug)],
-    )
+    # TODO: In theory we can create the table if it doesn't exist, but this is currently
+    # not supported.
+    # await se.create_meta_table(slug, [MetadataField(name=f["name"], type=f["type"], nullable=f["nullable"]) for f in resource["fields"]], "engine", "created_at", resource["primary_key"])
 
     result = await se.client.query(
-        f"SELECT id, ref FROM `%s` WHERE id = %s ORDER BY created_at DESC LIMIT 1",
-        parameters=[se._qualified_table_name(slug), metadata.id],
+        f"SELECT id, ref FROM {se._qualified_table_name('meta_'+slug)} WHERE id = %s ORDER BY created_at DESC LIMIT 1",
+        parameters=[metadata.id],
     )
     records = list(result.named_results())
     version = 1
@@ -78,8 +162,8 @@ async def create_metadata(slug: str, req: Request, metadata: MetadataReqBody):
         version = int(records[0]["ref"].split("__v")[-1]) + 1
 
     await se.client.command(
-        f"INSERT INTO `%s` (id, ref, created_at, updated_at) VALUES (%s, %s, now(), now())",
-        parameters=[se._qualified_table_name(slug), metadata.id, f"{metadata.id}__v{version}"],
+        f"INSERT INTO {se._qualified_table_name('meta_'+slug)} (id, ref, created_at, updated_at) VALUES (%s, %s, now(), now())",
+        parameters=[metadata.id, f"{metadata.id}__v{version}"],
     )
 
     return {"type": slug, "id": metadata.id, "ref": f"{metadata.id}__v{version}"}
@@ -95,11 +179,11 @@ async def get_metadata(slug: str, mid: str, req: Request):
     se: Clickhouse = req.app.state.se
 
     result = await se.client.query(f"""
-        SELECT * FROM `%s` WHERE (id, updated_at) IN (
-            SELECT id, max(updated_at) FROM `%s` WHERE id=%s GROUP BY (id, created_at)
+        SELECT * FROM {se._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
+            SELECT id, max(updated_at) FROM {se._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
         ) ORDER BY created_at DESC
     """,
-        parameters=[se._qualified_table_name(slug), se._qualified_table_name(slug), mid],
+        parameters=[mid],
     )
     return list(result.named_results())
 
@@ -114,11 +198,11 @@ async def update_metadata_version(slug: str, mid: str, version: str, req: Reques
     se: Clickhouse = req.app.state.se
 
     result = await se.client.query(f"""
-        SELECT * FROM `%s` WHERE (id, updated_at) IN (
-            SELECT id, max(updated_at) FROM `%s` WHERE ref=%s GROUP BY (id, created_at)
+        SELECT * FROM {se._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
+            SELECT id, max(updated_at) FROM {se._qualified_table_name("meta_"+slug)} WHERE ref=%s GROUP BY (id, created_at)
         ) ORDER BY created_at DESC
     """,
-        parameters=[se._qualified_table_name(slug), se._qualified_table_name(slug), f"{mid}__v{version}"],
+        parameters=[f"{mid}__v{version}"],
     )
     record = next(result.named_results(), None)
     if record is None:
@@ -126,7 +210,7 @@ async def update_metadata_version(slug: str, mid: str, version: str, req: Reques
 
     original_created_at = record["created_at"]
     await se.client.command(
-        f"INSERT INTO `%s` (id, ref, created_at, updated_at) VALUES (%s, %s, %s, now())",
-        parameters=[se._qualified_table_name(slug), mid, f"{mid}__v{version}", original_created_at],
+        f"INSERT INTO {se._qualified_table_name("meta_"+slug)} (id, ref, created_at, updated_at) VALUES (%s, %s, %s, now())",
+        parameters=[mid, f"{mid}__v{version}", original_created_at],
     )
     return {"id": mid, "ref": f"{mid}__v{version}"}
