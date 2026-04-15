@@ -1,5 +1,11 @@
 # MetrANOVA API
 
+## Cloning
+
+This repo uses submodules. When cloining please remember to use the recurse-submodules flag.
+
+- `git clone --recurse-submodules https://github.com/MetrANOVA/api.git`
+
 ## Workspace structure
 
 This repository uses a `uv` workspace with three packages:
@@ -55,14 +61,14 @@ The devcontainer spins up a full local development environment using Docker Comp
 
 ### Services
 
-| Service | Description | Ports |
-|---|---|---|
-| **api** | Python 3.14 dev container — your working environment | — |
-| **clickhouse** | ClickHouse OLAP database, database `metranova` | `8123` (HTTP), `9000` (native) |
-| **kafka** | Apache Kafka in KRaft mode (no Zookeeper) | `9092` (internal), `9094` (external) |
-| **telegraf** | Collects SNMP metrics and publishes them to Kafka topic `snmp.telegraf.metrics` | — |
-| **snmp-simulator** | Simulates SNMP devices for local development | `161/udp` |
-| **grafana** | Grafana with the ClickHouse datasource pre-configured | `3000` |
+| Service            | Description                                                                     | Ports                                |
+| ------------------ | ------------------------------------------------------------------------------- | ------------------------------------ |
+| **api**            | Python 3.14 dev container — your working environment                            | —                                    |
+| **clickhouse**     | ClickHouse OLAP database, database `metranova`                                  | `8123` (HTTP), `9000` (native)       |
+| **kafka**          | Apache Kafka in KRaft mode (no Zookeeper)                                       | `9092` (internal), `9094` (external) |
+| **telegraf**       | Collects SNMP metrics and publishes them to Kafka topic `snmp.telegraf.metrics` | —                                    |
+| **snmp-simulator** | Simulates SNMP devices for local development                                    | `161/udp`                            |
+| **grafana**        | Grafana with the ClickHouse datasource pre-configured                           | `3000`                               |
 
 ### Prerequisites
 
@@ -72,6 +78,7 @@ The devcontainer spins up a full local development environment using Docker Comp
 ### Starting the environment
 
 If you haven't already load git submodules.
+
 ```
 make setup
 ```
@@ -92,11 +99,11 @@ docker compose -f .devcontainer/docker-compose.yml up -d
 
 ### Accessing services
 
-| Service | URL | Credentials |
-|---|---|---|
-| Grafana | http://localhost:3000 | `admin` / `admin` |
-| ClickHouse HTTP | http://localhost:8123 | user: `default`, no password |
-| Kafka (external) | `localhost:9094` | — |
+| Service          | URL                   | Credentials                  |
+| ---------------- | --------------------- | ---------------------------- |
+| Grafana          | http://localhost:3000 | `admin` / `admin`            |
+| ClickHouse HTTP  | http://localhost:8123 | user: `default`, no password |
+| Kafka (external) | `localhost:9094`      | —                            |
 
 ### Database schema
 
