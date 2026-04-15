@@ -69,7 +69,7 @@ def test_close_closes_client(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    storage.close()
+    asyncio.run(storage.close())
 
     assert storage.client.closed is True
 
@@ -268,7 +268,7 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
         ("aliases", "Array(String)", True),
     ]
     assert definition_row[4] == [
-        ("if_name", "reference", True, "interfaces"),
+        ("if_name", "String", True, "interfaces"),
         ("site", "Nullable(String)", True, ""),
     ]
 

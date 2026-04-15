@@ -1,4 +1,5 @@
 import clickhouse_connect
+import inspect
 import json
 import logging
 import os
@@ -90,8 +91,10 @@ class Clickhouse(StorageEngine):
             raise
 
     async def close(self):
-        if self.client:
-            await self.client.close()
+        if self.client is not None:
+            close_result = self.client.close()
+            if inspect.isawaitable(close_result):
+                await close_result
             logger.info("Connection to Clickhouse closed")
 
     async def is_connected(self):

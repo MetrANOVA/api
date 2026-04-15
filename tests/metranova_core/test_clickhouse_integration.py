@@ -103,6 +103,7 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
             ],
             meta_fields=[
                 MetaCollectionField("if_name", "String", False),
+                MetaCollectionField("timestamp", "DateTime64", False),
             ],
             identifier=["if_name", "timestamp"],
             ttl="365 DAY",

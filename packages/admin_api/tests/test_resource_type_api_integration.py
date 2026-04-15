@@ -106,6 +106,7 @@ def test_type_api_crud_flow(api_client):
         "meta": {
             "fields": [
                 {"field_name": "if_name", "field_type": "string", "nullable": True},
+                {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
             ]
         },
         "identifier": ["if_name", "timestamp"],
