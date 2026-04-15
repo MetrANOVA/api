@@ -13,12 +13,9 @@ class FakeStorage:
             "ref": "def_interface-traffic__v1",
             "name": "Interface Traffic",
             "slug": "interface-traffic",
-            "type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": '{"topic":"snmp.metrics"}',
-            "fields": [("if_name", "String", True), ("timestamp", "DateTime64", False)],
-            "primary_key": ["if_name", "timestamp"],
-            "partition_by": "toYYYYMM(timestamp)",
+            "meta_fields": [("if_name", "String", True, "")],
+            "data_fields": [("if_name", "String", True), ("timestamp", "DateTime64", False)],
+            "identifier": ["if_name", "timestamp"],
             "ttl": "365 DAY",
             "engine_type": "MergeTree()",
             "is_replicated": True,
@@ -106,7 +103,7 @@ def test_type_api_crud_flow(api_client):
                 {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
             ]
         },
-        "neta": {
+        "meta": {
             "fields": [
                 {"field_name": "if_name", "field_type": "string", "nullable": True},
             ]
@@ -196,7 +193,7 @@ def test_type_api_create_returns_500_on_duplicate_slug(api_client, monkeypatch):
         json={
             "name": "Interface Traffic",
             "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "neta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -233,7 +230,7 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
         json={
             "name": "Interface Traffic",
             "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "neta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
             "identifier": ["if_name"],
             "ttl": "invalid ttl",
         },
@@ -252,7 +249,7 @@ def test_type_api_create_ignores_slug_in_request_body(api_client):
             "name": "Interface Traffic",
             "slug": "Interface Traffic",
             "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "neta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -269,7 +266,7 @@ def test_type_api_create_ignores_partition_by_in_request_body(api_client):
         json={
             "name": "Interface Traffic",
             "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "neta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
             "identifier": ["if_name"],
             "partition_by": "toYYYYMM(timestamp; DROP TABLE metranova.definition)",
             "ttl": "365 DAY",

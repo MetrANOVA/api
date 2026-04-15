@@ -13,7 +13,7 @@ def build_valid_payload():
                 {"field_name": "timestamp", "field_type": "DateTime64", "nullable": False},
             ]
         },
-        "neta": {
+        "meta": {
             "fields": [
                 {"field_name": "host", "field_type": "String", "nullable": False},
             ]
@@ -27,7 +27,7 @@ def test_create_resource_type_request_accepts_valid_payload():
     model = CreateResourceTypeRequest(**build_valid_payload())
     assert model.name == "Interface Traffic"
     assert len(model.data.fields) == 2
-    assert len(model.neta.fields) == 1
+    assert len(model.meta.fields) == 1
 
 
 def test_create_resource_type_request_rejects_missing_primary_key_field():

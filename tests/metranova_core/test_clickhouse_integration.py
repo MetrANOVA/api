@@ -48,12 +48,9 @@ class FakeAsyncClient:
                     "ref",
                     "name",
                     "slug",
-                    "type",
-                    "consumer_type",
-                    "consumer_config",
-                    "fields",
-                    "primary_key",
-                    "partition_by",
+                    "meta_fields",
+                    "data_fields",
+                    "identifier",
                     "ttl",
                     "engine_type",
                     "is_replicated",
@@ -100,7 +97,6 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
     success, message = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
             data_fields=[
                 CollectionField("if_name", "String", False),
                 CollectionField("timestamp", "DateTime64", False),
@@ -145,7 +141,6 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     asyncio.run(
         storage.create_resource_type(
             name="IP Address",
-            slug="ip_address",
             data_fields=[CollectionField("ip", "String", False)],
             meta_fields=[MetaCollectionField("ip", "String", False)],
             identifier=["ip"],
@@ -156,7 +151,7 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
 
     success, message = asyncio.run(
         storage.update_resource_type(
-            slug="ip_address",
+            slug="ip-address",
             fields=[CollectionField("hostname", "String", True)],
         )
     )
@@ -164,14 +159,14 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     assert success is True
     assert "__v2" in message
     assert any(
-        "ALTER TABLE" in query and "ip_address" in query
+        "ALTER TABLE" in query and "ip-address" in query
         for query in storage.client.command_calls
     )
 
     all_rows = asyncio.run(storage.find_all_resource_types())
     assert all_rows is not None
-    assert len(all_rows) == 3
-    assert all_rows[-1]["slug"] == "ip_address"
+    assert len(all_rows) == 2
+    assert all_rows[-1]["slug"] == "ip-address"
 
 
 def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
@@ -186,7 +181,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
     first = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", False)],
             meta_fields=[MetaCollectionField("if_name", "String", False)],
             identifier=["if_name"],
@@ -197,7 +191,6 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
     second = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", False)],
             meta_fields=[MetaCollectionField("if_name", "String", False)],
             identifier=["if_name"],

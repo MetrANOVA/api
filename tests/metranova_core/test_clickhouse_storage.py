@@ -212,17 +212,18 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     call = storage.client.insert_calls[0]
     assert call["database"] == "metranova"
     assert call["table"] == "definition"
-    # Two rows: data and meta
-    assert len(call["data"]) == 2
-    data_row, meta_row = call["data"]
-    assert data_row[3] == "interface-traffic"  # slug
-    assert str(data_row[4]) == "data"           # type
-    assert data_row[7] == [                     # fields (index 7, after consumer_type/config)
+    assert len(call["data"]) == 1
+    definition_row = call["data"][0]
+    assert definition_row[3] == "interface-traffic"
+    assert definition_row[4] == [
+        ("if_name", "String", True, ""),
+    ]
+    assert definition_row[5] == [
         ("if_name", "String", True),
         ("rx_bps", "Float64", False),
     ]
-    assert str(meta_row[4]) == "metadata"
-    assert meta_row[7] == [("if_name", "String", True)]
+    assert definition_row[6] == ["if_name"]
+    assert definition_row[7] == "365 DAY"
 
 
 def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
@@ -261,16 +262,14 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
 
     assert success[0] is True
     call = storage.client.insert_calls[0]
-    data_row, meta_row = call["data"]
-    # Data fields canonicalized
-    assert data_row[7] == [
+    definition_row = call["data"][0]
+    assert definition_row[5] == [
         ("if_name", "String", True),
         ("aliases", "Array(String)", True),
     ]
-    # Meta fields: "reference" passes through, others are canonicalized
-    assert meta_row[7] == [
-        ("if_name", "reference", True),
-        ("site", "Nullable(String)", True),
+    assert definition_row[4] == [
+        ("if_name", "reference", True, "interfaces"),
+        ("site", "Nullable(String)", True, ""),
     ]
 
 
@@ -600,12 +599,9 @@ def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
             "def_interface-traffic__v1",
             "Interface Traffic",
             "interface-traffic",
-            "data",
-            "kafka",
-            '{"topic":"snmp.metrics"}',
+            [("if_name", "String", True, "")],
             [("if_name", "String", True)],
             ["if_name"],
-            "toYYYYMM(timestamp)",
             "365 DAY",
             "MergeTree()",
             True,
@@ -618,8 +614,8 @@ def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
     assert isinstance(result, list)
     assert isinstance(result[0], dict)
     assert result[0]["slug"] == "interface-traffic"
-    assert result[0]["type"] == "data"
-    assert result[0]["primary_key"] == ["if_name"]
+    assert result[0]["data_fields"] == [("if_name", "String", True)]
+    assert result[0]["identifier"] == ["if_name"]
 
 
 def test_find_all_resource_types_returns_none_on_query_error(monkeypatch):
@@ -784,12 +780,9 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
         "def_ip_address__v1",
         "IP Address",
         "ip_address",
-        "data",
-        "",
-        "{\"topic\": \"snmp.metrics\", \"ext\": {\"owner\": \"ops\"}}",
+        [("ip", "String", False, "")],
         [("ip", "String", False)],
         ["ip"],
-        "toYYYYMM(insert_time)",
         "365 DAY",
         "MergeTree()",
         True,
@@ -800,6 +793,11 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
         return existing if slug == "ip_address" else None
 
     storage.find_resource_type_by_slug = mock_find
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     success = asyncio.run(
         storage.update_resource_type(
@@ -819,11 +817,8 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
     assert len(storage.client.insert_calls) == 1
     row = storage.client.insert_calls[0]["data"][0]
     assert row[1] == "def_ip_address__v2"
-    assert ("hostname", "String", True) in row[7]
-    merged_config = json.loads(row[6])
-    assert merged_config["topic"] == "snmp.metrics.v2"
-    assert merged_config["ext"]["owner"] == "ops"
-    assert merged_config["ext"]["team"] == "network"
+    assert ("hostname", "String", True) in row[5]
+    assert row[6] == ["ip"]
 
 
 def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
@@ -836,13 +831,12 @@ def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
         "ref": "def_ip_address__v1",
         "name": "IP Address",
         "slug": "ip_address",
-        "type": "data",
-        "consumer_type": "kafka",
-        "consumer_config": "{}",
-        "fields": [("ip", "String", False)],
-        "primary_key": ["ip"],
+        "meta_fields": [("ip", "String", False, "")],
+        "data_fields": [("ip", "String", False)],
+        "identifier": ["ip"],
         "ttl": "365 DAY",
         "engine_type": "MergeTree()",
+        "is_replicated": True,
     }
 
     async def mock_find(slug):

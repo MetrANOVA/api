@@ -89,9 +89,9 @@ class Clickhouse(StorageEngine):
             logger.error(f"Failed to create database {self.database}: {e}")
             raise
 
-    def close(self):
+    async def close(self):
         if self.client:
-            self.client.close()
+            await self.client.close()
             logger.info("Connection to Clickhouse closed")
 
     async def is_connected(self):
@@ -137,21 +137,27 @@ class Clickhouse(StorageEngine):
     async def create_resource_type(
         self,
         name: str,
-        slug: str,
-        data_fields: list[CollectionField],
-        meta_fields: list[MetaCollectionField],
-        identifier: list[str],
-        ttl: str,
+        slug: str | None = None,
+        data_fields: list[CollectionField] | None = None,
+        meta_fields: list[MetaCollectionField] | None = None,
+        identifier: list[str] | None = None,
+        ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
     ) -> tuple[bool, str]:
         if not await self.is_connected():
             return False, "couldn't connect to Clickhouse"
+
+        data_fields = data_fields or []
+        meta_fields = meta_fields or []
+        identifier = identifier or []
 
         try:
             await self._ensure_definition_table()
         except Exception as e:
             logger.exception(e)
             return False, "couldn't ensure type definition table exists"
+        if not slug:
+            slug = name.lower().replace(' ', '-')
 
         existing = await self.find_resource_type_by_slug(slug)
         if existing:
@@ -169,16 +175,21 @@ class Clickhouse(StorageEngine):
         for f in meta_fields:
             if f.field_type.lower() != "reference":
                 f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
+            else:
+                f.field_type = "String"
 
         # Verify all identifier fields are present in data fields
-        data_field_names = {f.field_name for f in data_fields}
-        missing = [key for key in identifier if key not in data_field_names]
+        meta_field_names = {f.field_name for f in meta_fields}
+        missing = [key for key in identifier if key not in meta_field_names]
         if missing:
             logger.error(f"Identifier fields missing from data fields: {missing}")
             return False, f"identifier fields not found in data fields: {missing}"
 
         data_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in data_fields]
-        meta_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in meta_fields]
+        meta_fields_tuple = [
+            (f.field_name, f.field_type, f.nullable, f.table or "")
+            for f in meta_fields
+        ]
 
         cluster_info = await self.get_cluster_info()
         is_replicated = cluster_info["mode"] == "clustered"
@@ -206,9 +217,8 @@ class Clickhouse(StorageEngine):
             return False, "Error during meta table creation"
 
         column_names = [
-            "id", "ref", "name", "slug", "type",
-            "consumer_type", "consumer_config",
-            "fields", "primary_key", "partition_by", "ttl", "engine_type", "is_replicated",
+            "id", "ref", "name", "slug", 
+            "meta_fields", "data_fields", "identifier", "ttl", "engine_type", "is_replicated",
         ]
 
         data_row = [
@@ -216,38 +226,18 @@ class Clickhouse(StorageEngine):
             f"{definition_id}__v1",
             name,
             slug,
-            CollectionType.DATA,
-            "",
-            "{}",
+            meta_fields_tuple,
             data_fields_tuple,
             identifier,
-            "toYYYYMM(insert_time)",
             ttl,
             engine_type,
             is_replicated,
         ]
-
-        meta_row = [
-            f"{definition_id}_meta",
-            f"{definition_id}_meta__v1",
-            name,
-            slug,
-            CollectionType.METADATA,
-            "",
-            "{}",
-            meta_fields_tuple,
-            identifier,
-            "toYYYYMM(insert_time)",
-            ttl,
-            engine_type,
-            is_replicated,
-        ]
-
         try:
             await self.client.insert(
                 database=self.database,
                 table="definition",
-                data=[data_row, meta_row],
+                data=[data_row],
                 column_names=column_names,
             )
         except Exception as e:
@@ -268,12 +258,9 @@ class Clickhouse(StorageEngine):
                     ref,
                     name,
                     slug,
-                    type,
-                    consumer_type,
-                    consumer_config,
-                    fields,
-                    primary_key,
-                    partition_by,
+                    meta_fields,
+                    data_fields,
+                    identifier,
                     ttl,
                     engine_type,
                     is_replicated,
@@ -286,12 +273,9 @@ class Clickhouse(StorageEngine):
                 "ref",
                 "name",
                 "slug",
-                "type",
-                "consumer_type",
-                "consumer_config",
-                "fields",
-                "primary_key",
-                "partition_by",
+                "meta_fields",
+                "data_fields",
+                "identifier",
                 "ttl",
                 "engine_type",
                 "is_replicated",
@@ -335,12 +319,9 @@ class Clickhouse(StorageEngine):
             "ref",
             "name",
             "slug",
-            "type",
-            "consumer_type",
-            "consumer_config",
-            "fields",
-            "primary_key",
-            "partition_by",
+            "meta_fields",
+            "data_fields",
+            "identifier",
             "ttl",
             "engine_type",
             "is_replicated",
@@ -378,16 +359,7 @@ class Clickhouse(StorageEngine):
         if definition is None:
             return None
 
-        resource_type = (
-            definition["type"] if isinstance(definition, dict) else definition[4]
-        )
-        if str(resource_type) == CollectionType.DATA:
-            table_name = f"data_{slug}"
-        elif str(resource_type) == CollectionType.METADATA:
-            table_name = f"meta_{slug}"
-        else:
-            logger.error(f"Unknown resource type '{resource_type}' for slug '{slug}'")
-            return None
+        table_name = f"data_{slug}"
 
         try:
             result = await self.client.query(
@@ -412,7 +384,7 @@ class Clickhouse(StorageEngine):
 
             return {
                 "slug": slug,
-                "type": str(resource_type),
+                "type": str(CollectionType.DATA),
                 "table": f"metranova.{table_name}",
                 "columns": columns,
             }
@@ -492,7 +464,7 @@ class Clickhouse(StorageEngine):
             ref String NOT NULL,
             hash String NOT NULL,
             insert_time DateTime DEFAULT now() NOT NULL,
-            tag Array(LowCardinality(String)), 
+            tags Array(LowCardinality(String)), 
             policy_level LowCardinality(String) NOT NULL,
             policy_scope Array(LowCardinality(String)) NOT NULL,
             policy_originator LowCardinality(String) NOT NULL,
@@ -534,8 +506,7 @@ class Clickhouse(StorageEngine):
         if not new_fields and not config_updates and not ext_updates:
             return False, "No additive updates provided"
 
-        existing_fields = current_def.get("fields") or []
-        # Handle both dict and tuple field representations from ClickHouse
+        existing_fields = current_def.get("data_fields") or []
         existing_field_names = set()
         normalized_fields = []
         for field in existing_fields:
@@ -549,19 +520,15 @@ class Clickhouse(StorageEngine):
                 existing_field_names.add(field[0])
                 normalized_fields.append(field)
 
+        ch_types = await self._get_ch_types()
         fields_to_add = []
         for field in new_fields:
             if field.field_name in existing_field_names:
                 return False, f"Field '{field.field_name}' already exists"
-            fields_to_add.append((field.field_name, field.field_type, field.nullable))
+            canonical_type = self._canonicalize_column_type(field.field_type, ch_types)
+            fields_to_add.append((field.field_name, canonical_type, field.nullable))
 
-        table_type = str(current_def["type"])
-        if table_type == CollectionType.DATA:
-            table_name = f"data_{slug}"
-        elif table_type == CollectionType.METADATA:
-            table_name = f"meta_{slug}"
-        else:
-            return False, f"Unknown type '{table_type}' for slug '{slug}'"
+        table_name = f"data_{slug}"
 
         try:
             if fields_to_add:
@@ -572,35 +539,15 @@ class Clickhouse(StorageEngine):
 
         merged_fields = [*normalized_fields, *fields_to_add]
 
-        try:
-            current_config = current_def.get("consumer_config") or {}
-            if isinstance(current_config, str):
-                current_config = json.loads(current_config)
-        except Exception:
-            current_config = {}
-
-        if not isinstance(current_config, dict):
-            current_config = {}
-
-        merged_config = {**current_config, **config_updates}
-        if ext_updates:
-            existing_ext = merged_config.get("ext") or {}
-            if not isinstance(existing_ext, dict):
-                existing_ext = {}
-            merged_config["ext"] = {**existing_ext, **ext_updates}
-
         new_ref = self._bump_ref_version(current_def["ref"], current_def["id"])
         row = [
             current_def["id"],
             new_ref,
             current_def["name"],
             current_def["slug"],
-            current_def["type"],
-            current_def.get("consumer_type", ""),
-            json.dumps(merged_config),
+            current_def.get("meta_fields") or [],
             merged_fields,
-            current_def["primary_key"],
-            current_def["partition_by"],
+            current_def.get("identifier") or [],
             current_def["ttl"],
             current_def["engine_type"],
             current_def["is_replicated"],
@@ -612,9 +559,8 @@ class Clickhouse(StorageEngine):
                 table="definition",
                 data=[row],
                 column_names=[
-                    "id", "ref", "name", "slug", "type",
-                    "consumer_type", "consumer_config",
-                    "fields", "primary_key", "partition_by", "ttl", "engine_type", "is_replicated",
+                    "id", "ref", "name", "slug", "meta_fields",
+                    "data_fields", "identifier", "ttl", "engine_type", "is_replicated",
                 ],
             )
             return True, f"Resource type '{slug}' updated to {new_ref}"
@@ -642,16 +588,18 @@ class Clickhouse(StorageEngine):
                 ref String,
                 name String,
                 slug String,
-                type Enum8('data' = 1, 'metadata' = 2),
-                consumer_type String,
-                consumer_config String,
-                fields Array(Tuple(
+                meta_fields Array(Tuple(
                     field_name String,
                     field_type String,
-                    nullable Bool
+                    nullable Bool,
+                    table String
                 )),
-                primary_key Array(String),
-                partition_by String,
+                data_fields Array(Tuple(
+                    field_name String,
+                    field_type String,
+                    nullable Bool,
+                )),
+                identifier Array(String),
                 ttl String,
                 engine_type String DEFAULT 'CoalescingMergeTree',
                 is_replicated Bool DEFAULT true,
@@ -703,6 +651,7 @@ class Clickhouse(StorageEngine):
                 host_address,
                 port
             FROM system.clusters
+            WHERE is_local = 0
             ORDER BY cluster, shard_num, replica_num
         """)
 

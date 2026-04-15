@@ -40,18 +40,18 @@ class StorageEngine(ABC):
         pass
 
     @abstractmethod
-    def close(self):
+    async def close(self):
         pass
 
     @abstractmethod
     async def create_resource_type(
         self,
         name: str,
-        slug: str,
-        data_fields: list[CollectionField],
-        meta_fields: list[MetaCollectionField],
-        identifier: list[str],
-        ttl: str,
+        slug: str | None = None,
+        data_fields: list[CollectionField] | None = None,
+        meta_fields: list[MetaCollectionField] | None = None,
+        identifier: list[str] | None = None,
+        ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
     ) -> tuple[bool, str]:
         pass

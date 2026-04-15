@@ -31,18 +31,18 @@ async def create_resource_type(
             nullable=f.nullable,
             table=f.table,
         )
-        for f in request.neta.fields
+        for f in request.meta.fields
     ]
 
     slug = request.name.lower().replace(' ', '-')
     try:
         (success, msg) = await se.create_resource_type(
-            request.name,
-            slug,
-            data_fields,
-            meta_fields,
-            request.identifier,
-            request.ttl,
+            name=request.name,
+            slug=slug,
+            data_fields=data_fields,
+            meta_fields=meta_fields,
+            identifier=request.identifier,
+            ttl=request.ttl,
         )
     except Exception as e:
         logger.exception(e)
@@ -97,12 +97,9 @@ async def get_resource_type_by_slug(
         "ref",
         "name",
         "slug",
-        "type",
-        "consumer_type",
-        "consumer_config",
-        "fields",
-        "primary_key",
-        "partition_by",
+        "meta_fields",
+        "data_fields",
+        "identifier",
         "ttl",
         "engine_type",
         "is_replicated",

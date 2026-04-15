@@ -23,7 +23,7 @@ class MetaFields(BaseModel):
 class CreateResourceTypeRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])
     data: DataFields = Field()
-    neta: MetaFields = Field()
+    meta: MetaFields = Field()
     identifier: list[str] = Field(min_length=1)
     ttl: str = Field(min_length=1, examples=["365 DAY"])
 
@@ -47,16 +47,16 @@ class CreateResourceTypeRequest(BaseModel):
         if len(data_field_names) != len(set(data_field_names)):
             raise ValueError("data fields must have unique field_name values")
 
-        meta_field_names = [f.field_name for f in self.neta.fields]
+        meta_field_names = [f.field_name for f in self.meta.fields]
         if len(meta_field_names) != len(set(meta_field_names)):
             raise ValueError("meta fields must have unique field_name values")
 
         missing_identifiers = [
-            key for key in self.identifier if key not in data_field_names
+            key for key in self.identifier if key not in meta_field_names
         ]
         if missing_identifiers:
             raise ValueError(
-                f"identifier fields must exist in data fields: {missing_identifiers}"
+                f"identifier fields must exist in meta fields: {missing_identifiers}"
             )
 
         return self
