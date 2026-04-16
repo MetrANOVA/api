@@ -2,11 +2,14 @@
 
 slug: short for metadata type, e.g. node, interface, temperature. Called "slug" in design documents.
 """
+import json
 import logging
+import pydantic
 
 from fastapi import APIRouter, Request, HTTPException
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
+from admin_api.metadata.service import MetadataService, slugify
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
@@ -25,68 +28,35 @@ async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
     This registers a new metadata type in the system by adding an entry to the resource_types table.
     The slug is auto-generated from the name by lowercasing and replacing spaces with underscores.
     """
-    se: Clickhouse = req.app.state.se
-
     for key in body.identifier:
         if key not in [f.name for f in body.fields]:
             raise HTTPException(status_code=400, detail=f"Identifier field '{key}' not found in fields.")
 
-    slug = body.name.lower().replace(" ", "_")
-    existing = await se.find_resource_type_by_slug(slug)
-    if existing is not None:
-        raise HTTPException(status_code=400, detail=f"Metadata type with slug '{slug}' already exists.")
-
     try:
-        await se.create_meta_table(slug, body.fields, "engine", "created_at", body.identifier)
-        await se.client.insert(
-            database=se.database,
-            table="definition",
-            data=[
-                [
-                    f"def_{slug}",
-                    f"def_{slug}__v1",
-                    body.name,
-                    slug,
-                    "metadata",
-                    "kafka",
-                    "{}",
-                    [(f.name, f.type, f.nullable) for f in body.fields],
-                    body.identifier,
-                    "created_at",
-                    "ttl",
-                ]
-            ],
-            column_names=[
-                "id",
-                "ref",
-                "name",
-                "slug",
-                "type",
-                "consumer_type",
-                "consumer_config",
-                "fields",
-                "primary_key",
-                "partition_by",
-                "ttl",
-            ],
-        )
+        metadata = MetadataService(req.app.state.se)
+        await metadata.create_metadata_type(body.name, body.identifier, body.fields)
+    except ValueError as ve:
+        logger.warning(f"Validation error creating metadata type '{body.name}': {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        logger.exception(
-            f"Error creating metadata type definition '{slug}': {e}"
-        )
-        raise HTTPException(status_code=400, detail=f"Error creating metadata type definition '{slug}': {e}")
-    return {"type": slug}
+        logger.exception(f"Error creating metadata type '{body.name}': {e}")
+        raise HTTPException(status_code=400, detail=f"Error creating metadata type '{body.name}': {e}")
+
+    return {"type": slugify(body.name)}
 
 
 @router.get("/")
-async def get_metadata_slugs(req: Request):
+async def get_metadata_types(req: Request):
     """List all registered metadata types.
 
     Returns the slug of each resource type where type is 'metadata'.
     """
-    se: Clickhouse = req.app.state.se
-    resources = await se.find_all_resource_types()
-    return [{"type": r["slug"]} for r in filter(lambda x: x["type"] == "metadata", resources)]
+    try:
+        metadata = MetadataService(req.app.state.se)
+        return await metadata.get_metadata_types()
+    except Exception as e:
+        logger.exception(f"Error fetching metadata types: {e}")
+        raise HTTPException(status_code=400, detail=f"Error fetching metadata types: {e}")
 
 
 @router.get("/{slug}")
@@ -95,24 +65,12 @@ async def get_metadata(slug: str, req: Request):
 
     Uses max(created_at) per id to return only the most recent version of each record.
     """
-    se: Clickhouse = req.app.state.se
-
-    result = await se.client.query("""
-        SELECT t.* FROM {db:Identifier}.{table:Identifier} t
-        INNER JOIN (
-            SELECT id, max(created_at) AS max_created_at
-            FROM {db:Identifier}.{table:Identifier}
-            GROUP BY id
-        ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
-        """,
-        parameters={"db": "metranova", "table": f"meta_{slug}"}
-    )
-
-    return list(result.named_results())
-
-
-class MetadataReqBody(BaseModel):
-    id: str
+    try:
+        metadata = MetadataService(req.app.state.se)
+        return await metadata.get_metadata_records(slug)
+    except Exception as e:
+        logger.exception(f"Error fetching metadata records for type '{slug}': {e}")
+        raise HTTPException(status_code=400, detail=f"Error fetching metadata records for type '{slug}': {e}")
 
 
 @router.delete("/{slug}")
@@ -121,52 +79,40 @@ async def delete_metadata_type(slug: str, req: Request):
 
     This drops the backing ClickHouse table and removes the resource type definition.
     """
-    se: Clickhouse = req.app.state.se
-
-    await se.client.command(f"DROP TABLE IF EXISTS {se._qualified_table_name('meta_'+slug)}", parameters=[])
-    await se.client.command("DELETE FROM definition WHERE slug = %s AND type = 'metadata'", parameters=[slug])
-    return {"detail": f"Metadata type '{slug}' and all associated records have been deleted."}
+    try:
+        metadata = MetadataService(req.app.state.se)
+        await metadata.delete_metadata_type(slug)
+        return {"detail": f"Metadata type '{slug}' and all associated records have been deleted."}
+    except Exception as e:
+        logger.exception(f"Error deleting metadata type '{slug}': {e}")
+        raise HTTPException(status_code=400, detail=f"Error deleting metadata type '{slug}': {e}")
 
 
 @router.post("/{slug}")
-async def create_metadata(slug: str, req: Request, metadata: MetadataReqBody):
+async def create_metadata(slug: str, req: Request):
     """Create a new versioned metadata record.
 
     Validates that the metadata type exists and the primary key structure matches.
     Creates the backing table if it doesn't exist, then inserts a new row with an
     auto-incremented version ref (e.g. 'my-id__v1').
     """
-    se: Clickhouse = req.app.state.se
+    metadata = MetadataService(req.app.state.se)
+    record = await req.json()
 
-    resource = await se.find_resource_type_by_slug(slug)
-    if resource is None:
-        raise HTTPException(status_code=400, detail=f"Metadata type '{slug}' not found in resource types.")
+    type_def = await metadata.get_metadata_type(slug)
+    if type_def is None:
+        raise HTTPException(status_code=404, detail=f"Metadata type '{slug}' not found in resource types.")
 
-    if len(metadata.id.split("::")) != len(resource["primary_key"]):
-        raise HTTPException(status_code=400, detail=f"Invalid primary key for metadata type '{slug}'.")
+    try:
+        await metadata.validate_metadata_record(type_def, record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    # # If you want to reset the table for testing, uncomment the following line. This will delete all existing metadata of this type.
-    await se.client.command(f"DROP TABLE IF EXISTS {se._qualified_table_name('meta_'+slug)}", parameters=[])
-
-    # TODO: In theory we can create the table if it doesn't exist, but this is currently
-    # not supported.
-    # await se.create_meta_table(slug, [MetadataField(name=f["name"], type=f["type"], nullable=f["nullable"]) for f in resource["fields"]], "engine", "created_at", resource["primary_key"])
-
-    result = await se.client.query(
-        f"SELECT id, ref FROM {se._qualified_table_name('meta_'+slug)} WHERE id = %s ORDER BY created_at DESC LIMIT 1",
-        parameters=[metadata.id],
-    )
-    records = list(result.named_results())
-    version = 1
-    if len(records) > 0:
-        version = int(records[0]["ref"].split("__v")[-1]) + 1
-
-    await se.client.command(
-        f"INSERT INTO {se._qualified_table_name('meta_'+slug)} (id, ref, created_at, updated_at) VALUES (%s, %s, now(), now())",
-        parameters=[metadata.id, f"{metadata.id}__v{version}"],
-    )
-
-    return {"type": slug, "id": metadata.id, "ref": f"{metadata.id}__v{version}"}
+    try:
+        await metadata.create_metadata_record(type_def, record)
+        return {"type": slug, "id": record["id"], "ref": record["ref"]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{slug}/{mid}")
@@ -178,14 +124,12 @@ async def get_metadata(slug: str, mid: str, req: Request):
     """
     se: Clickhouse = req.app.state.se
 
-    result = await se.client.query(f"""
-        SELECT * FROM {se._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
-            SELECT id, max(updated_at) FROM {se._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
-        ) ORDER BY created_at DESC
-    """,
-        parameters=[mid],
-    )
-    return list(result.named_results())
+    try:
+        metadata = MetadataService(se)
+        return await metadata.get_metadata_record_history(slug, mid)
+    except Exception as e:
+        logger.exception(f"Error fetching metadata history for '{mid}' in type '{slug}': {e}")
+        raise HTTPException(status_code=400, detail=f"Error fetching metadata history for '{mid}' in type '{slug}': {e}")
 
 
 @router.put("/{slug}/{mid}/{version}")
