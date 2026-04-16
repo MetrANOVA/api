@@ -12,8 +12,6 @@ id String,                -- Stable external identifier (e.g., 'def_interface_01
     name String,              -- e.g., 'Interface Traffic'
     slug String,              -- e.g., 'interface-traffic'
     type Enum8('data' = 1, 'metadata' = 2),
-    consumer_type String,
-    consumer_config String,
     
     -- Table Construction Schema
     fields Array(Tuple(
@@ -21,11 +19,8 @@ id String,                -- Stable external identifier (e.g., 'def_interface_01
         field_type String, 
         nullable Bool
     )),
-    primary_key Array(String),-- e.g., ['interface_ref', 'timestamp']
-    partition_by String,      -- e.g., 'toYYYYMM(timestamp)'
+    identifier Array(String),-- e.g., ['interface_ref', 'timestamp']
     ttl String,               -- e.g., '365 DAY'
-    engine_type String DEFAULT 'CoalescingMergeTree',
-    is_replicated Bool DEFAULT true,
     
     updated_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
