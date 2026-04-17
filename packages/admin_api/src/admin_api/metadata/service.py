@@ -206,9 +206,9 @@ class MetadataService:
 
         cols = list(record.keys())
         rows = list(record.values())
-        
         print(f"cols {cols}")
         print(f"row {rows}")
+
         return await self.client.insert(
             database=self.storage.database,
             table=table,
@@ -216,8 +216,34 @@ class MetadataService:
             data=[list(record.values())]
         )
 
-    async def update_metadata_record(self):
-        pass
+    async def update_metadata_record(self, definition: dict[str, any], record: dict[str, any], version: str):
+        table = f"meta_{definition['slug']}"
+
+        record["hash"] = "examplehash"
+        record["ext"] = {}
+        record["ref"] = f"{record['id']}__v{version}"
+
+        existing = await self.client.query(
+            f"""
+            SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, updated_at) IN (
+                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, created_at)
+            ) ORDER BY created_at DESC
+            """,
+            parameters=[record["ref"]],
+        )
+        existing_record = next(existing.named_results(), None)
+        if existing_record is None:
+            raise ValueError(f"Record '{record['ref']}' not found in metadata type '{definition['slug']}'.")
+
+        record["created_at"] = existing_record["created_at"]
+        record["updated_at"] = datetime.now()
+
+        return await self.client.insert(
+            database=self.storage.database,
+            table=table,
+            column_names=list(record.keys()),
+            data=[list(record.values())]
+        )
 
     async def get_metadata_record_history(self, slug: str, _id: str) -> list[dict]:
         result = await self.client.query(f"""

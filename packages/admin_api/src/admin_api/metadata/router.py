@@ -6,7 +6,7 @@ import json
 import logging
 import pydantic
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Body, Request, HTTPException
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
 from admin_api.metadata.service import MetadataService, slugify
@@ -133,28 +133,34 @@ async def get_metadata(slug: str, mid: str, req: Request):
 
 
 @router.put("/{slug}/{mid}/{version}")
-async def update_metadata_version(slug: str, mid: str, version: str, req: Request):
+async def update_metadata_version(slug: str, mid: str, version: str, req: Request, record: dict = Body(...)):
     """Update a specific version of a metadata record.
 
-    Inserts a new row with the same id, ref, and created_at but a fresh updated_at
-    timestamp. This follows ClickHouse's append-only pattern instead of in-place updates.
+    Accepts a full record body, validates it, preserves the original created_at, and
+    inserts a new row with a fresh updated_at. Follows ClickHouse's append-only pattern.
     """
-    se: Clickhouse = req.app.state.se
+    metadata = MetadataService(req.app.state.se)
 
-    result = await se.client.query(f"""
-        SELECT * FROM {se._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
-            SELECT id, max(updated_at) FROM {se._qualified_table_name("meta_"+slug)} WHERE ref=%s GROUP BY (id, created_at)
-        ) ORDER BY created_at DESC
-    """,
-        parameters=[f"{mid}__v{version}"],
-    )
-    record = next(result.named_results(), None)
-    if record is None:
-        raise HTTPException(status_code=400, detail=f"Failed to find metadata for '{mid}__v{version}' in metadata type '{slug}'.")
+    type_def = await metadata.get_metadata_type(slug)
+    if type_def is None:
+        raise HTTPException(status_code=404, detail=f"Metadata type '{slug}' not found.")
 
-    original_created_at = record["created_at"]
-    await se.client.command(
-        f"INSERT INTO {se._qualified_table_name("meta_"+slug)} (id, ref, created_at, updated_at) VALUES (%s, %s, %s, now())",
-        parameters=[mid, f"{mid}__v{version}", original_created_at],
-    )
-    return {"id": mid, "ref": f"{mid}__v{version}"}
+    try:
+        assert mid == "::".join([record[i] for i in type_def["identifier"]])
+        record["id"] = mid
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Metadata primary keys cannot be modified.")
+
+    try:
+        await metadata.validate_metadata_record(type_def, record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        await metadata.update_metadata_record(type_def, record, version)
+        return {"id": record["id"], "ref": record["ref"]}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error updating metadata '{mid}__v{version}' in type '{slug}': {e}")
+        raise HTTPException(status_code=400, detail=str(e))
