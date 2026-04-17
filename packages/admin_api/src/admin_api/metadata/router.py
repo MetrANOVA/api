@@ -22,6 +22,10 @@ class CreateMetadataTypeReq(BaseModel):
     fields: list[MetadataField]
 
 
+class UpdateMetadataTypeReq(BaseModel):
+    fields: list[MetadataField]
+
+
 @router.post("/")
 async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
     """Create a new metadata type.
@@ -81,6 +85,22 @@ async def get_metadata(slug: str, req: Request):
             status_code=400,
             detail=f"Error fetching metadata records for type '{slug}': {e}",
         )
+
+
+@router.put("/{slug}")
+async def update_metadata_type(slug: str, req: Request, body: UpdateMetadataTypeReq):
+    """Update a metadata type's schema by adding or removing non-reserved, non-identifier fields."""
+    metadata = MetadataService(req.app.state.se)
+    try:
+        await metadata.update_metadata_type(slug, body.fields)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error updating metadata type '{slug}': {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"type": slug}
 
 
 @router.delete("/{slug}")

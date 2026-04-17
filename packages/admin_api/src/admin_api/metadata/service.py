@@ -54,6 +54,12 @@ class MetadataField(BaseModel):
         return self
 
 
+RESERVED_COLUMNS = {
+    "id", "ref", "hash", "created_at", "updated_at",
+    "tag", "policy_level", "policy_scope", "policy_originator", "ext",
+}
+
+
 class MetadataService:
     """Service class for handling metadata operations."""
 
@@ -151,8 +157,70 @@ class MetadataService:
             parameters=[slug],
         )
 
-    async def update_metadata_type(self, slug: str):
-        pass
+    async def update_metadata_type(self, slug: str, fields: list[MetadataField]):
+        type_def = await self.get_metadata_type(slug)
+        if type_def is None:
+            raise LookupError(f"Metadata type '{slug}' not found.")
+
+        identifier_set = set(type_def["identifier"])
+        protected = RESERVED_COLUMNS | identifier_set
+
+        for f in fields:
+            if f.name in RESERVED_COLUMNS:
+                raise ValueError(f"Field '{f.name}' is a reserved column and cannot be modified.")
+            if f.name in identifier_set:
+                raise ValueError(f"Field '{f.name}' is an identifier field and cannot be modified.")
+
+        existing_fields = {
+            f["field_name"]: f
+            for f in type_def["fields"]
+            if f["field_name"] not in protected
+        }
+        new_fields = {f.name: f for f in fields}
+
+        to_add = {name: f for name, f in new_fields.items() if name not in existing_fields}
+        to_remove = {name for name in existing_fields if name not in new_fields}
+
+        table = self.storage._qualified_table_name(f"meta_{slug}")
+
+        for name, f in to_add.items():
+            col = self.storage._quoted_identifier(f.name)
+            typ = self.storage._validated_column_type(f.type)
+            null_clause = "" if f.nullable else " NOT NULL"
+            await self.client.command(f"ALTER TABLE {table} ADD COLUMN {col} {typ}{null_clause}")
+
+        for name in to_remove:
+            col = self.storage._quoted_identifier(name)
+            await self.client.command(f"ALTER TABLE {table} DROP COLUMN {col}")
+
+        identifier_field_tuples = [
+            (f["field_name"], f["field_type"], f["nullable"])
+            for f in type_def["fields"]
+            if f["field_name"] in identifier_set
+        ]
+        updated_fields = identifier_field_tuples + [(f.name, f.type, f.nullable) for f in fields]
+
+        existing_ref = (await self.client.query(
+            "SELECT ref FROM definition WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
+            parameters={"slug": slug},
+        )).first_row[0]
+        next_version = int(existing_ref.split("__v")[-1]) + 1
+
+        await self.client.insert(
+            database=self.storage.database,
+            table="definition",
+            data=[[
+                f"def_{slug}",
+                f"def_{slug}__v{next_version}",
+                type_def["name"],
+                slug,
+                "metadata",
+                updated_fields,
+                type_def["identifier"],
+                type_def["ttl"],
+            ]],
+            column_names=["id", "ref", "name", "slug", "type", "fields", "identifier", "ttl"],
+        )
 
     async def get_metadata_type(self, slug):
         result = await self.client.query(
