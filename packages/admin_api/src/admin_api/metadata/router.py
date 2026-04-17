@@ -2,6 +2,7 @@
 
 slug: short for metadata type, e.g. node, interface, temperature. Called "slug" in design documents.
 """
+
 import json
 import logging
 import pydantic
@@ -30,7 +31,9 @@ async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
     """
     for key in body.identifier:
         if key not in [f.name for f in body.fields]:
-            raise HTTPException(status_code=400, detail=f"Identifier field '{key}' not found in fields.")
+            raise HTTPException(
+                status_code=400, detail=f"Identifier field '{key}' not found in fields."
+            )
 
     try:
         metadata = MetadataService(req.app.state.se)
@@ -40,7 +43,9 @@ async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         logger.exception(f"Error creating metadata type '{body.name}': {e}")
-        raise HTTPException(status_code=400, detail=f"Error creating metadata type '{body.name}': {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Error creating metadata type '{body.name}': {e}"
+        )
 
     return {"type": slugify(body.name)}
 
@@ -56,7 +61,9 @@ async def get_metadata_types(req: Request):
         return await metadata.get_metadata_types()
     except Exception as e:
         logger.exception(f"Error fetching metadata types: {e}")
-        raise HTTPException(status_code=400, detail=f"Error fetching metadata types: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Error fetching metadata types: {e}"
+        )
 
 
 @router.get("/{slug}")
@@ -70,7 +77,10 @@ async def get_metadata(slug: str, req: Request):
         return await metadata.get_metadata_records(slug)
     except Exception as e:
         logger.exception(f"Error fetching metadata records for type '{slug}': {e}")
-        raise HTTPException(status_code=400, detail=f"Error fetching metadata records for type '{slug}': {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error fetching metadata records for type '{slug}': {e}",
+        )
 
 
 @router.delete("/{slug}")
@@ -82,10 +92,14 @@ async def delete_metadata_type(slug: str, req: Request):
     try:
         metadata = MetadataService(req.app.state.se)
         await metadata.delete_metadata_type(slug)
-        return {"detail": f"Metadata type '{slug}' and all associated records have been deleted."}
+        return {
+            "detail": f"Metadata type '{slug}' and all associated records have been deleted."
+        }
     except Exception as e:
         logger.exception(f"Error deleting metadata type '{slug}': {e}")
-        raise HTTPException(status_code=400, detail=f"Error deleting metadata type '{slug}': {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Error deleting metadata type '{slug}': {e}"
+        )
 
 
 @router.post("/{slug}")
@@ -101,7 +115,10 @@ async def create_metadata(slug: str, req: Request):
 
     type_def = await metadata.get_metadata_type(slug)
     if type_def is None:
-        raise HTTPException(status_code=404, detail=f"Metadata type '{slug}' not found in resource types.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Metadata type '{slug}' not found in resource types.",
+        )
 
     try:
         await metadata.validate_metadata_record(type_def, record)
@@ -128,12 +145,19 @@ async def get_metadata(slug: str, mid: str, req: Request):
         metadata = MetadataService(se)
         return await metadata.get_metadata_record_history(slug, mid)
     except Exception as e:
-        logger.exception(f"Error fetching metadata history for '{mid}' in type '{slug}': {e}")
-        raise HTTPException(status_code=400, detail=f"Error fetching metadata history for '{mid}' in type '{slug}': {e}")
+        logger.exception(
+            f"Error fetching metadata history for '{mid}' in type '{slug}': {e}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error fetching metadata history for '{mid}' in type '{slug}': {e}",
+        )
 
 
 @router.put("/{slug}/{mid}/{version}")
-async def update_metadata_version(slug: str, mid: str, version: str, req: Request, record: dict = Body(...)):
+async def update_metadata_version(
+    slug: str, mid: str, version: str, req: Request, record: dict = Body(...)
+):
     """Update a specific version of a metadata record.
 
     Accepts a full record body, validates it, preserves the original created_at, and
@@ -143,13 +167,17 @@ async def update_metadata_version(slug: str, mid: str, version: str, req: Reques
 
     type_def = await metadata.get_metadata_type(slug)
     if type_def is None:
-        raise HTTPException(status_code=404, detail=f"Metadata type '{slug}' not found.")
+        raise HTTPException(
+            status_code=404, detail=f"Metadata type '{slug}' not found."
+        )
 
     try:
         assert mid == "::".join([record[i] for i in type_def["identifier"]])
         record["id"] = mid
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Metadata primary keys cannot be modified.")
+        raise HTTPException(
+            status_code=400, detail=f"Metadata primary keys cannot be modified."
+        )
 
     try:
         await metadata.validate_metadata_record(type_def, record)
@@ -162,5 +190,7 @@ async def update_metadata_version(slug: str, mid: str, version: str, req: Reques
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception(f"Error updating metadata '{mid}__v{version}' in type '{slug}': {e}")
+        logger.exception(
+            f"Error updating metadata '{mid}__v{version}' in type '{slug}': {e}"
+        )
         raise HTTPException(status_code=400, detail=str(e))

@@ -5,7 +5,6 @@ from datetime import date, datetime
 from metranova.storage.clickhouse import Clickhouse
 from pydantic import BaseModel, model_validator, create_model
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -15,21 +14,21 @@ def slugify(value: str) -> str:
 
 
 CH_TYPE_MAP: dict[str, type] = {
-    "String":     str,
-    "UUID":       str,
-    "Bool":       bool,
-    "UInt8":      int,
-    "UInt16":     int,
-    "UInt32":     int,
-    "UInt64":     int,
-    "Int8":       int,
-    "Int16":      int,
-    "Int32":      int,
-    "Int64":      int,
-    "Float32":    float,
-    "Float64":    float,
-    "Date":       date,
-    "DateTime":   datetime,
+    "String": str,
+    "UUID": str,
+    "Bool": bool,
+    "UInt8": int,
+    "UInt16": int,
+    "UInt32": int,
+    "UInt64": int,
+    "Int8": int,
+    "Int16": int,
+    "Int32": int,
+    "Int64": int,
+    "Float32": float,
+    "Float64": float,
+    "Date": date,
+    "DateTime": datetime,
     "DateTime64": datetime,
 }
 
@@ -46,24 +45,27 @@ class MetadataField(BaseModel):
     nullable: bool
     table: str | None = None
 
-    @model_validator(mode='after')
-    def validate_reference(self) -> 'MetadataField':
-        if self.type == 'reference' and self.table is None:
-            raise ValueError('table is required when type is reference')
-        if self.type != 'reference' and self.table is not None:
-            raise ValueError('table should only be provided when type is reference')
+    @model_validator(mode="after")
+    def validate_reference(self) -> "MetadataField":
+        if self.type == "reference" and self.table is None:
+            raise ValueError("table is required when type is reference")
+        if self.type != "reference" and self.table is not None:
+            raise ValueError("table should only be provided when type is reference")
         return self
 
-    
+
 class MetadataService:
     """Service class for handling metadata operations."""
+
     def __init__(self, storage: Clickhouse):
         self.storage = storage
         self.client = storage.client
 
-    async def create_metadata_type(self, name: str, identifier: list[str], fields: list[MetadataField]):
+    async def create_metadata_type(
+        self, name: str, identifier: list[str], fields: list[MetadataField]
+    ):
         """Create a new metadata type
-        
+
         This creates both a new database table and a new an entry in
         metranova.definition.
         """
@@ -71,7 +73,7 @@ class MetadataService:
         existing = await self.storage.find_resource_type_by_slug(slug)
         if existing is not None:
             raise ValueError(f"Metadata type with slug '{slug}' already exists.")
-        
+
         _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
         _table = f"meta_{slug}"
         _cols = []
@@ -137,28 +139,29 @@ class MetadataService:
                 ],
             )
         except Exception as e:
-            logger.exception(
-                f"Error creating metadata type definition '{slug}': {e}"
-            )
+            logger.exception(f"Error creating metadata type definition '{slug}': {e}")
             raise Exception(f"Error creating metadata type definition '{slug}': {e}")
 
     async def delete_metadata_type(self, slug: str):
-        await self.client.command(f"DROP TABLE IF EXISTS {self.storage._qualified_table_name('meta_'+slug)}")
-        await self.client.command("DELETE FROM definition WHERE slug = %s AND type = 'metadata'", parameters=[slug])
+        await self.client.command(
+            f"DROP TABLE IF EXISTS {self.storage._qualified_table_name('meta_'+slug)}"
+        )
+        await self.client.command(
+            "DELETE FROM definition WHERE slug = %s AND type = 'metadata'",
+            parameters=[slug],
+        )
 
     async def update_metadata_type(self, slug: str):
         pass
 
-
     async def get_metadata_type(self, slug):
         result = await self.client.query(
             "SELECT name, slug, type, fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata' and slug = {slug:String}",
-            parameters={"slug": slug}
+            parameters={"slug": slug},
         )
         if result.row_count == 0:
             return None
         return list(result.named_results())[0]
-
 
     async def validate_metadata_record(self, definition: str, record: dict[str, any]):
         # definition = await self.get_metadata_type(slug)
@@ -171,30 +174,37 @@ class MetadataService:
             v = record.get(field_name, None)
             if not nullable and v is None:
                 raise ValueError(f"Field '{field_name}' is required.")
-            
+
             python_type = resolve_python_type(field_type)
             if v is not None and type(v) != python_type:
-                raise ValueError(f"Field' {field_name}' is not of type '{python_type.__name__}'.")
+                raise ValueError(
+                    f"Field' {field_name}' is not of type '{python_type.__name__}'."
+                )
         return definition
 
-
     async def get_metadata_types(self):
-        result = await self.client.query("SELECT name, slug, type, fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata'")
+        result = await self.client.query(
+            "SELECT name, slug, type, fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata'"
+        )
         return list(result.named_results())
 
-    async def create_metadata_record(self, definition: dict[str, any], record: dict[str, any]):
+    async def create_metadata_record(
+        self, definition: dict[str, any], record: dict[str, any]
+    ):
         table = f"meta_{definition["slug"]}"
 
         # We perform an _id lookup for the user based on their provided metadata
         record["id"] = "::".join([record[i] for i in definition["identifier"]])
-        
+
         # Determine using type_def["fields"] sorted by name. This is the hash of all user
         # defined fields.
         record["hash"] = "examplehash"
         record["ext"] = {}
-    
+
         # Determine the ref for this new record
-        records = await self.get_metadata_record_history(definition["slug"], record["id"])
+        records = await self.get_metadata_record_history(
+            definition["slug"], record["id"]
+        )
         version = 1
         if len(records) > 0:
             version = int(records[0]["ref"].split("__v")[-1]) + 1
@@ -213,10 +223,12 @@ class MetadataService:
             database=self.storage.database,
             table=table,
             column_names=list(record.keys()),
-            data=[list(record.values())]
+            data=[list(record.values())],
         )
 
-    async def update_metadata_record(self, definition: dict[str, any], record: dict[str, any], version: str):
+    async def update_metadata_record(
+        self, definition: dict[str, any], record: dict[str, any], version: str
+    ):
         table = f"meta_{definition['slug']}"
 
         record["hash"] = "examplehash"
@@ -233,7 +245,9 @@ class MetadataService:
         )
         existing_record = next(existing.named_results(), None)
         if existing_record is None:
-            raise ValueError(f"Record '{record['ref']}' not found in metadata type '{definition['slug']}'.")
+            raise ValueError(
+                f"Record '{record['ref']}' not found in metadata type '{definition['slug']}'."
+            )
 
         record["created_at"] = existing_record["created_at"]
         record["updated_at"] = datetime.now()
@@ -242,11 +256,12 @@ class MetadataService:
             database=self.storage.database,
             table=table,
             column_names=list(record.keys()),
-            data=[list(record.values())]
+            data=[list(record.values())],
         )
 
     async def get_metadata_record_history(self, slug: str, _id: str) -> list[dict]:
-        result = await self.client.query(f"""
+        result = await self.client.query(
+            f"""
             SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
                 SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
             ) ORDER BY created_at DESC
@@ -256,7 +271,8 @@ class MetadataService:
         return list(result.named_results())
 
     async def get_metadata_records(self, slug: str) -> list[dict]:
-        result = await self.client.query("""
+        result = await self.client.query(
+            """
             SELECT t.* FROM {db:Identifier}.{table:Identifier} t
             INNER JOIN (
                 SELECT id, max(created_at) AS max_created_at
@@ -264,6 +280,6 @@ class MetadataService:
                 GROUP BY id
             ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
             """,
-            parameters={"db": "metranova", "table": f"meta_{slug}"}
+            parameters={"db": "metranova", "table": f"meta_{slug}"},
         )
         return list(result.named_results())

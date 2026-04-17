@@ -3,6 +3,7 @@ run-api:
 
 setup:
 	git submodule update --init --recursive
+	uv sync --frozen --all-groups
 
 reload-pipeline:
 	docker rm -f pipeline && docker compose -p api_devcontainer -f .devcontainer/docker-compose.yml up -d --no-deps --build pipeline
