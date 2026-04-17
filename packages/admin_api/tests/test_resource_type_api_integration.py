@@ -97,18 +97,14 @@ def test_type_api_crud_flow(api_client):
 
     create_payload = {
         "name": "Interface Traffic",
-        "data": {
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True},
-                {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
-            ]
-        },
-        "meta": {
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True},
-                {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
-            ]
-        },
+        "data_fields": [
+            {"field_name": "if_name", "field_type": "string", "nullable": True},
+            {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
+        ],
+        "meta_fields": [
+            {"field_name": "if_name", "field_type": "string", "nullable": True},
+            {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
+        ],
         "identifier": ["if_name", "timestamp"],
         "ttl": "365 DAY",
     }
@@ -193,8 +189,8 @@ def test_type_api_create_returns_500_on_duplicate_slug(api_client, monkeypatch):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -230,8 +226,8 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
             "identifier": ["if_name"],
             "ttl": "invalid ttl",
         },
@@ -249,8 +245,8 @@ def test_type_api_create_ignores_slug_in_request_body(api_client):
         json={
             "name": "Interface Traffic",
             "slug": "Interface Traffic",
-            "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -266,8 +262,8 @@ def test_type_api_create_ignores_partition_by_in_request_body(api_client):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
-            "meta": {"fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}]},
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
             "identifier": ["if_name"],
             "partition_by": "toYYYYMM(timestamp; DROP TABLE metranova.definition)",
             "ttl": "365 DAY",

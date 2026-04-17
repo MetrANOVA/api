@@ -22,7 +22,7 @@ async def create_resource_type(
             field_type=f.field_type,
             nullable=f.nullable,
         )
-        for f in request.data.fields
+        for f in request.data_fields
     ]
     meta_fields = [
         MetaCollectionField(
@@ -31,7 +31,7 @@ async def create_resource_type(
             nullable=f.nullable,
             table=f.table,
         )
-        for f in request.meta.fields
+        for f in request.meta_fields
     ]
 
     slug = request.name.lower().replace(' ', '-')

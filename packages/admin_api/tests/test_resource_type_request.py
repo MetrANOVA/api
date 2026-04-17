@@ -7,18 +7,14 @@ from admin_api.models.resource_type import CreateResourceTypeRequest
 def build_valid_payload():
     return {
         "name": "Interface Traffic",
-        "data": {
-            "fields": [
-                {"field_name": "host", "field_type": "String", "nullable": False},
-                {"field_name": "timestamp", "field_type": "DateTime64", "nullable": False},
-            ]
-        },
-        "meta": {
-            "fields": [
-                {"field_name": "host", "field_type": "String", "nullable": False},
-                {"field_name": "timestamp", "field_type": "DateTime64", "nullable": False},
-            ]
-        },
+        "data_fields": [
+            {"field_name": "host", "field_type": "String", "nullable": False},
+            {"field_name": "timestamp", "field_type": "DateTime64", "nullable": False},
+        ],
+        "meta_fields": [
+            {"field_name": "host", "field_type": "String", "nullable": False},
+            {"field_name": "timestamp", "field_type": "DateTime64", "nullable": False},
+        ],
         "identifier": ["host", "timestamp"],
         "ttl": "365 DAY",
     }
@@ -27,8 +23,8 @@ def build_valid_payload():
 def test_create_resource_type_request_accepts_valid_payload():
     model = CreateResourceTypeRequest(**build_valid_payload())
     assert model.name == "Interface Traffic"
-    assert len(model.data.fields) == 2
-    assert len(model.meta.fields) == 2
+    assert len(model.data_fields) == 2
+    assert len(model.meta_fields) == 2
 
 
 def test_create_resource_type_request_rejects_missing_primary_key_field():
@@ -41,7 +37,7 @@ def test_create_resource_type_request_rejects_missing_primary_key_field():
 
 def test_create_resource_type_request_rejects_duplicate_field_names():
     payload = build_valid_payload()
-    payload["data"]["fields"] = [
+    payload["data_fields"] = [
         {"field_name": "host", "field_type": "String", "nullable": False},
         {"field_name": "host", "field_type": "String", "nullable": False},
     ]

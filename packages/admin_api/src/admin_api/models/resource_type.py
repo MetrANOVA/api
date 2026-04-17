@@ -22,8 +22,8 @@ class MetaFields(BaseModel):
 
 class CreateResourceTypeRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])
-    data: DataFields = Field()
-    meta: MetaFields = Field()
+    data_fields: list[ResourceFieldRequest] = Field(min_length=1)
+    meta_fields: list[MetaFieldRequest] = Field(min_length=1)
     identifier: list[str] = Field(min_length=1)
     ttl: str = Field(min_length=1, examples=["365 DAY"])
 
@@ -43,11 +43,11 @@ class CreateResourceTypeRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_fields_and_identifiers(self):
-        data_field_names = [f.field_name for f in self.data.fields]
+        data_field_names = [f.field_name for f in self.data_fields]
         if len(data_field_names) != len(set(data_field_names)):
             raise ValueError("data fields must have unique field_name values")
 
-        meta_field_names = [f.field_name for f in self.meta.fields]
+        meta_field_names = [f.field_name for f in self.meta_fields]
         if len(meta_field_names) != len(set(meta_field_names)):
             raise ValueError("meta fields must have unique field_name values")
 
