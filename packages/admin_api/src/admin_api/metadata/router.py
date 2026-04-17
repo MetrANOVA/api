@@ -146,8 +146,8 @@ async def create_metadata(slug: str, req: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
-        await metadata.create_metadata_record(type_def, record)
-        return {"type": slug, "id": record["id"], "ref": record["ref"]}
+        result = await metadata.create_metadata_record(type_def, record)
+        return {"type": slug, **result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

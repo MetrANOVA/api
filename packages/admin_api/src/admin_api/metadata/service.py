@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import re
 
@@ -55,9 +57,23 @@ class MetadataField(BaseModel):
 
 
 RESERVED_COLUMNS = {
-    "id", "ref", "hash", "created_at", "updated_at",
-    "tag", "policy_level", "policy_scope", "policy_originator", "ext",
+    "id",
+    "ref",
+    "hash",
+    "created_at",
+    "updated_at",
+    "tag",
+    "policy_level",
+    "policy_scope",
+    "policy_originator",
+    "ext",
 }
+
+
+def compute_record_hash(record: dict) -> str:
+    payload = {k: v for k, v in record.items() if k not in RESERVED_COLUMNS}
+    serialized = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.md5(serialized.encode()).hexdigest()
 
 
 class MetadataService:
@@ -167,9 +183,13 @@ class MetadataService:
 
         for f in fields:
             if f.name in RESERVED_COLUMNS:
-                raise ValueError(f"Field '{f.name}' is a reserved column and cannot be modified.")
+                raise ValueError(
+                    f"Field '{f.name}' is a reserved column and cannot be modified."
+                )
             if f.name in identifier_set:
-                raise ValueError(f"Field '{f.name}' is an identifier field and cannot be modified.")
+                raise ValueError(
+                    f"Field '{f.name}' is an identifier field and cannot be modified."
+                )
 
         existing_fields = {
             f["field_name"]: f
@@ -178,7 +198,9 @@ class MetadataService:
         }
         new_fields = {f.name: f for f in fields}
 
-        to_add = {name: f for name, f in new_fields.items() if name not in existing_fields}
+        to_add = {
+            name: f for name, f in new_fields.items() if name not in existing_fields
+        }
         to_remove = {name for name in existing_fields if name not in new_fields}
 
         table = self.storage._qualified_table_name(f"meta_{slug}")
@@ -187,7 +209,9 @@ class MetadataService:
             col = self.storage._quoted_identifier(f.name)
             typ = self.storage._validated_column_type(f.type)
             null_clause = "" if f.nullable else " NOT NULL"
-            await self.client.command(f"ALTER TABLE {table} ADD COLUMN {col} {typ}{null_clause}")
+            await self.client.command(
+                f"ALTER TABLE {table} ADD COLUMN {col} {typ}{null_clause}"
+            )
 
         for name in to_remove:
             col = self.storage._quoted_identifier(name)
@@ -198,28 +222,43 @@ class MetadataService:
             for f in type_def["fields"]
             if f["field_name"] in identifier_set
         ]
-        updated_fields = identifier_field_tuples + [(f.name, f.type, f.nullable) for f in fields]
+        updated_fields = identifier_field_tuples + [
+            (f.name, f.type, f.nullable) for f in fields
+        ]
 
-        existing_ref = (await self.client.query(
-            "SELECT ref FROM definition WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
-            parameters={"slug": slug},
-        )).first_row[0]
+        existing_ref = (
+            await self.client.query(
+                "SELECT ref FROM definition WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
+                parameters={"slug": slug},
+            )
+        ).first_row[0]
         next_version = int(existing_ref.split("__v")[-1]) + 1
 
         await self.client.insert(
             database=self.storage.database,
             table="definition",
-            data=[[
-                f"def_{slug}",
-                f"def_{slug}__v{next_version}",
-                type_def["name"],
-                slug,
-                "metadata",
-                updated_fields,
-                type_def["identifier"],
-                type_def["ttl"],
-            ]],
-            column_names=["id", "ref", "name", "slug", "type", "fields", "identifier", "ttl"],
+            data=[
+                [
+                    f"def_{slug}",
+                    f"def_{slug}__v{next_version}",
+                    type_def["name"],
+                    slug,
+                    "metadata",
+                    updated_fields,
+                    type_def["identifier"],
+                    type_def["ttl"],
+                ]
+            ],
+            column_names=[
+                "id",
+                "ref",
+                "name",
+                "slug",
+                "type",
+                "fields",
+                "identifier",
+                "ttl",
+            ],
         )
 
     async def get_metadata_type(self, slug):
@@ -261,38 +300,35 @@ class MetadataService:
     ):
         table = f"meta_{definition["slug"]}"
 
-        # We perform an _id lookup for the user based on their provided metadata
         record["id"] = "::".join([record[i] for i in definition["identifier"]])
 
-        # Determine using type_def["fields"] sorted by name. This is the hash of all user
-        # defined fields.
-        record["hash"] = "examplehash"
-        record["ext"] = {}
+        new_hash = compute_record_hash(record)
 
-        # Determine the ref for this new record
         records = await self.get_metadata_record_history(
             definition["slug"], record["id"]
         )
         version = 1
         if len(records) > 0:
-            version = int(records[0]["ref"].split("__v")[-1]) + 1
+            latest = records[0]
+            if latest["hash"] == new_hash:
+                return {"ref": latest["ref"], "id": record["id"], "unchanged": True}
+            version = int(latest["ref"].split("__v")[-1]) + 1
+
+        record["hash"] = new_hash
+        record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
 
         time = datetime.now()
         record["created_at"] = time
         record["updated_at"] = time
 
-        cols = list(record.keys())
-        rows = list(record.values())
-        print(f"cols {cols}")
-        print(f"row {rows}")
-
-        return await self.client.insert(
+        await self.client.insert(
             database=self.storage.database,
             table=table,
             column_names=list(record.keys()),
             data=[list(record.values())],
         )
+        return {"ref": record["ref"], "id": record["id"], "unchanged": False}
 
     async def update_metadata_record(
         self, definition: dict[str, any], record: dict[str, any], version: str
