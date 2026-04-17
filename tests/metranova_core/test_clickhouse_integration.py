@@ -1,9 +1,9 @@
 import asyncio
 from types import SimpleNamespace
 
-from metranova_core import CollectionField, CollectionType, ConsumerType
-from metranova_core import Clickhouse
-from metranova_core.storage.base import MetaCollectionField
+from metranova import CollectionField, CollectionType, ConsumerType
+from metranova import Clickhouse
+from metranova.storage.base import MetaCollectionField
 
 
 class FakeAsyncClient:

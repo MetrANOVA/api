@@ -1,5 +1,5 @@
 [project]
-name = "metranova_core"
+name = "metranova"
 version = "0.1.0"
 description = "Shared core package for MetrANOVA services"
 readme = "README.md"
@@ -33,7 +33,7 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/metranova_core"]
+packages = ["src/metranova"]
 
 [tool.pytest.ini_options]
 testpaths = [

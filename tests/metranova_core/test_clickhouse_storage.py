@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova_core.storage.base import CollectionField, MetaCollectionField
-from metranova_core.storage.clickhouse import Clickhouse
+from metranova.storage.base import CollectionField, MetaCollectionField
+from metranova.storage.clickhouse import Clickhouse
 
 
 class DummySyncClient:
@@ -100,7 +100,7 @@ def test_connect_creates_async_client_and_pings(monkeypatch):
         return async_client
 
     monkeypatch.setattr(
-        "metranova_core.storage.clickhouse.clickhouse_connect.create_async_client",
+        "metranova.storage.clickhouse.clickhouse_connect.create_async_client",
         fake_create_async_client,
     )
 

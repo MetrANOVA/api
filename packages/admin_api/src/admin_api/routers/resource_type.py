@@ -1,8 +1,8 @@
 import logging
 from fastapi import APIRouter, HTTPException, Depends
 
-from metranova_core.storage.clickhouse import Clickhouse
-from metranova_core.storage.base import CollectionField, MetaCollectionField
+from metranova.storage.clickhouse import Clickhouse
+from metranova.storage.base import CollectionField, MetaCollectionField
 from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 

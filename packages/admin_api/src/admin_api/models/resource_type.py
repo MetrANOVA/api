@@ -3,7 +3,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from metranova_core.storage.base import CollectionType, ConsumerType
+from metranova.storage.base import CollectionType, ConsumerType
 
 
 class ResourceFieldRequest(BaseModel):
