@@ -3,9 +3,7 @@
 slug: short for metadata type, e.g. node, interface, temperature. Called "slug" in design documents.
 """
 
-import json
 import logging
-import pydantic
 
 from fastapi import APIRouter, Body, Request, HTTPException
 from metranova.storage.clickhouse import Clickhouse, MetadataField
