@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova.storage.base import CollectionField, MetaCollectionField
-from metranova.storage.clickhouse import Clickhouse, MetadataField
+from metranova.storage.base import CollectionField, MetadataField
+from metranova.storage.clickhouse import Clickhouse
 
 
 class DummySyncClient:
@@ -208,7 +208,7 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
     ]
     meta_fields = [
-        MetaCollectionField(field_name="if_name", field_type="String", nullable=True),
+        MetadataField(name="if_name", type="String", nullable=True),
     ]
 
     success = asyncio.run(
@@ -268,8 +268,8 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
                 CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
             ],
             meta_fields=[
-                MetaCollectionField(field_name="if_name", field_type="reference", nullable=True, table="interfaces"),
-                MetaCollectionField(field_name="site", field_type="nullable(string)", nullable=True),
+                MetadataField(name="if_name", type="reference", nullable=True, table="interfaces"),
+                MetadataField(name="site", type="nullable(string)", nullable=True),
             ],
             identifier=["if_name"],
             ttl="365 DAY",
@@ -316,7 +316,7 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )
@@ -356,7 +356,7 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )
@@ -517,7 +517,7 @@ def test_create_meta_table_uses_on_cluster_when_clustered(monkeypatch):
     asyncio.run(
         storage.create_meta_table(
             slug="device_inventory",
-            fields=[("hostname", "String", False)],
+            fields=[MetadataField(name="hostname", type="String", nullable=False)],
             engine="MergeTree()",
             primary_key=["hostname"],
         )
@@ -797,7 +797,7 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )

@@ -4,7 +4,6 @@ import logging
 import re
 
 from datetime import date, datetime
-from metranova.storage.clickhouse import Clickhouse
 from pydantic import BaseModel, model_validator, create_model
 
 logger = logging.getLogger(__name__)

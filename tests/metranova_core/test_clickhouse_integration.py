@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from metranova import CollectionField, CollectionType, ConsumerType
 from metranova import Clickhouse
-from metranova.storage.base import MetaCollectionField
+from metranova.storage.base import MetadataField
 
 
 class FakeAsyncClient:
@@ -32,9 +32,8 @@ class FakeAsyncClient:
                 self.definition_rows.append(tuple(normalized))
 
     _DEFINITION_COLUMNS = [
-        "id", "ref", "name", "slug", "type", "consumer_type",
-        "consumer_config", "fields", "primary_key", "partition_by",
-        "ttl", "engine_type", "is_replicated", "updated_at",
+        "id", "ref", "name", "slug", "meta_fields", "data_fields",
+        "identifier", "ttl", "engine_type", "is_replicated", "updated_at",
     ]
 
     async def query(self, query: str, parameters=None):
@@ -100,8 +99,8 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
                 CollectionField("timestamp", "DateTime64", False),
             ],
             meta_fields=[
-                MetaCollectionField("if_name", "String", False),
-                MetaCollectionField("timestamp", "DateTime64", False),
+                MetadataField(name="if_name", type="String", nullable=False),
+                MetadataField(name="timestamp", type="DateTime64", nullable=False),
             ],
             identifier=["if_name", "timestamp"],
             ttl="365 DAY",
@@ -142,7 +141,7 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
         storage.create_resource_type(
             name="IP Address",
             data_fields=[CollectionField("ip", "String", False)],
-            meta_fields=[MetaCollectionField("ip", "String", False)],
+            meta_fields=[MetadataField(name="ip", type="String", nullable=False)],
             identifier=["ip"],
             ttl="365 DAY",
             engine_type="MergeTree()",
@@ -182,7 +181,7 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             data_fields=[CollectionField("if_name", "String", False)],
-            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=False)],
             identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
@@ -192,7 +191,7 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             data_fields=[CollectionField("if_name", "String", False)],
-            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=False)],
             identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",

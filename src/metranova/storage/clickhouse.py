@@ -5,28 +5,13 @@ import logging
 import os
 import re
 
-from pydantic import BaseModel, model_validator
-
-from .base import StorageEngine, CollectionField, MetaCollectionField, CollectionType, ConsumerType
+from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
+from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
 
 logger = logging.getLogger(__name__)
 
-
-class MetadataField(BaseModel):
-    name: str
-    type: str
-    nullable: bool
-    table: str | None = None
-
-    @model_validator(mode='after')
-    def validate_reference(self) -> 'MetadataField':
-        if self.type == 'reference' and self.table is None:
-            raise ValueError('table is required when type is reference')
-        if self.type != 'reference' and self.table is not None:
-            raise ValueError('table should only be provided when type is reference')
-        return self
 
 class Clickhouse(StorageEngine):
     _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -174,7 +159,7 @@ class Clickhouse(StorageEngine):
         name: str,
         slug: str | None = None,
         data_fields: list[CollectionField] | None = None,
-        meta_fields: list[MetaCollectionField] | None = None,
+        meta_fields: list[MetadataField] | None = None,
         identifier: list[str] | None = None,
         ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
@@ -206,25 +191,31 @@ class Clickhouse(StorageEngine):
         for f in data_fields:
             f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
 
-        # Validate meta field types — "reference" is a logical type, accepted as-is
+        # Validate meta field types — "reference" is a logical type, accepted as-is.
+        # Track original table values before normalization for definition storage.
+        original_tables = {f.name: f.table for f in meta_fields}
+        normalized_meta = []
         for f in meta_fields:
-            if f.field_type.lower() != "reference":
-                f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
+            if f.type.lower() != "reference":
+                normalized_type = self._canonicalize_column_type(f.type, ch_types)
+                normalized_meta.append(MetadataField(name=f.name, type=normalized_type, nullable=f.nullable, table=f.table))
             else:
-                f.field_type = "String"
+                normalized_meta.append(MetadataField(name=f.name, type="String", nullable=f.nullable, table=None))
 
-        # Verify all identifier fields are present in data fields
-        meta_field_names = {f.field_name for f in meta_fields}
+        # Verify all identifier fields are present in meta fields
+        meta_field_names = {f.name for f in normalized_meta}
         missing = [key for key in identifier if key not in meta_field_names]
         if missing:
             logger.error(f"Identifier fields missing from data fields: {missing}")
             return False, f"identifier fields not found in data fields: {missing}"
 
         data_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in data_fields]
+        # Store normalized type but preserve original table reference in the definition.
         meta_fields_tuple = [
-            (f.field_name, f.field_type, f.nullable, f.table or "")
-            for f in meta_fields
+            (f.name, f.type, f.nullable, original_tables.get(f.name) or "")
+            for f in normalized_meta
         ]
+        meta_fields = normalized_meta
 
         cluster_info = await self.get_cluster_info()
         is_replicated = cluster_info["mode"] == "clustered"
@@ -242,9 +233,9 @@ class Clickhouse(StorageEngine):
         try:
             # Reference-type fields are logical; skip them in the physical DDL
             physical_meta_fields = [
-                (f.field_name, f.field_type, f.nullable)
+                MetadataField(name=f.name, type=f.type, nullable=f.nullable)
                 for f in meta_fields
-                if f.field_type.lower() != "reference"
+                if f.type.lower() != "reference"
             ]
             await self.create_meta_table(slug, physical_meta_fields, engine_type, identifier)
         except Exception as e:

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from admin_api.metadata.service import MetadataField
+
 
 class CollectionType(StrEnum):
     DATA = "data"
@@ -18,13 +20,6 @@ class CollectionField:
     field_name: str
     field_type: str
     nullable: bool = True
-
-
-@dataclass
-class MetaCollectionField(CollectionField):
-    """A metadata collection field. Supports 'reference' as a field_type
-    in addition to all standard ClickHouse types."""
-    table: str | None = None
 
 
 class StorageEngine(ABC):
@@ -49,7 +44,7 @@ class StorageEngine(ABC):
         name: str,
         slug: str | None = None,
         data_fields: list[CollectionField] | None = None,
-        meta_fields: list[MetaCollectionField] | None = None,
+        meta_fields: list[MetadataField] | None = None,
         identifier: list[str] | None = None,
         ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
