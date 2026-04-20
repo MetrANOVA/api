@@ -1,8 +1,9 @@
 import asyncio
 from types import SimpleNamespace
 
-from metranova.storage.base import CollectionField, CollectionType, ConsumerType
-from metranova.storage.clickhouse import Clickhouse
+from metranova import CollectionField, CollectionType, ConsumerType
+from metranova import Clickhouse
+from metranova.storage.base import MetaCollectionField
 
 
 class FakeAsyncClient:
@@ -20,11 +21,11 @@ class FakeAsyncClient:
 
     async def command(self, query: str):
         self.command_calls.append(query)
-        if "CREATE TABLE IF NOT EXISTS metranova.definition" in query:
+        if "CREATE TABLE IF NOT EXISTS" in query and ".definition" in query:
             self.definition_exists = True
 
     async def insert(self, database, table, data, column_names):
-        if database == "metranova" and table == "definition":
+        if table == "definition":
             for row in data:
                 normalized = list(row)
                 normalized.append("2026-04-02 00:00:00")
@@ -39,12 +40,10 @@ class FakeAsyncClient:
     async def query(self, query: str, parameters=None):
         normalized_query = " ".join(query.strip().split())
 
-        if normalized_query.startswith("EXISTS TABLE metranova.definition"):
+        if normalized_query.startswith("EXISTS TABLE") and ".definition" in normalized_query:
             return SimpleNamespace(result_rows=[[1 if self.definition_exists else 0]], row_count=1)
 
-        if normalized_query.startswith(
-            "SELECT * FROM metranova.definition WHERE slug = %s"
-        ):
+        if "SELECT * FROM" in normalized_query and ".definition WHERE slug = %s" in normalized_query:
             slug = parameters[0]
             candidates = [row for row in self.definition_rows if row[3] == slug]
             row = candidates[-1] if candidates else None
@@ -58,7 +57,7 @@ class FakeAsyncClient:
             return SimpleNamespace(result_rows=rows, row_count=len(rows), named_results=named_results)
 
         if (
-            "FROM metranova.definition" in normalized_query
+            ".definition" in normalized_query
             and "SELECT" in normalized_query
         ):
             return SimpleNamespace(result_rows=self.definition_rows, row_count=len(self.definition_rows))
@@ -88,23 +87,25 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     success, message = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[
+            data_fields=[
                 CollectionField("if_name", "String", False),
                 CollectionField("timestamp", "DateTime64", False),
             ],
-            primary_key=["if_name", "timestamp"],
-            partition_by="toYYYYMM(timestamp)",
+            meta_fields=[
+                MetaCollectionField("if_name", "String", False),
+                MetaCollectionField("timestamp", "DateTime64", False),
+            ],
+            identifier=["if_name", "timestamp"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 
@@ -114,6 +115,10 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
         "CREATE TABLE `metranova`.`data_interface-traffic`" in query
         for query in storage.client.command_calls
     )
+    assert any(
+        "CREATE TABLE `metranova`.`meta_interface-traffic`" in query
+        for query in storage.client.command_calls
+    )
 
     by_slug = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
     assert by_slug is not None
@@ -121,7 +126,6 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
 
     schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
     assert schema is not None
-    assert schema["table"] == "metranova.data_interface-traffic"
     assert schema["columns"][0]["name"] == "collector_id"
 
 
@@ -129,78 +133,69 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     asyncio.run(
         storage.create_resource_type(
             name="IP Address",
-            slug="ip_address",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics", "ext": {"owner": "ops"}},
-            fields=[CollectionField("ip", "String", False)],
-            primary_key=["ip"],
-            partition_by="toYYYYMM(insert_time)",
+            data_fields=[CollectionField("ip", "String", False)],
+            meta_fields=[MetaCollectionField("ip", "String", False)],
+            identifier=["ip"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 
     success, message = asyncio.run(
         storage.update_resource_type(
-            slug="ip_address",
+            slug="ip-address",
             fields=[CollectionField("hostname", "String", True)],
-            consumer_config_updates={"topic": "snmp.metrics.v2"},
-            ext_updates={"team": "network"},
         )
     )
 
     assert success is True
     assert "__v2" in message
     assert any(
-        "ALTER TABLE `metranova`.`data_ip_address`" in query
+        "ALTER TABLE" in query and "ip-address" in query
         for query in storage.client.command_calls
     )
 
     all_rows = asyncio.run(storage.find_all_resource_types())
     assert all_rows is not None
     assert len(all_rows) == 2
-    assert all_rows[-1]["slug"] == "ip_address"
+    assert all_rows[-1]["slug"] == "ip-address"
 
 
 def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+    async def mock_get_ch_types():
+        return ["String", "DateTime64", "Float64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     first = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", False)],
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=[CollectionField("if_name", "String", False)],
+            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
     second = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
-            slug="interface-traffic",
-            collection_type=CollectionType.DATA,
-            consumer_type=ConsumerType.KAFKA,
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", False)],
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=[CollectionField("if_name", "String", False)],
+            meta_fields=[MetaCollectionField("if_name", "String", False)],
+            identifier=["if_name"],
             ttl="365 DAY",
             engine_type="MergeTree()",
-            is_replicated=True,
         )
     )
 

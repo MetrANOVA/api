@@ -1,5 +1,5 @@
 [project]
-name = "metranova_core"
+name = "metranova"
 version = "0.1.0"
 description = "Shared core package for MetrANOVA services"
 readme = "README.md"
@@ -38,8 +38,8 @@ packages = ["src/metranova"]
 [tool.pytest.ini_options]
 testpaths = [
 	"tests/metranova_core",
-	"src/admin_api/tests",
-	"src/pipeline/tests",
+	"packages/admin_api/tests",
+	"packages/pipeline/tests",
 ]
 
 [tool.black]

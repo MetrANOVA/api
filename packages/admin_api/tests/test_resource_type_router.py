@@ -49,12 +49,9 @@ def test_get_resource_type_by_slug_returns_dict_from_tuple_result():
             "def_interface-traffic__v1",
             "Interface Traffic",
             "interface-traffic",
-            "data",
-            "kafka",
-            '{"topic":"snmp.metrics"}',
+            [("if_name", "String", True, "")],
             [("if_name", "String", True)],
             ["if_name"],
-            "toYYYYMM(timestamp)",
             "365 DAY",
             "MergeTree()",
             True,
@@ -67,14 +64,14 @@ def test_get_resource_type_by_slug_returns_dict_from_tuple_result():
     assert storage.calls == ["interface-traffic"]
     assert isinstance(result, dict)
     assert result["slug"] == "interface-traffic"
-    assert result["type"] == "data"
+    assert result["data_fields"] == [("if_name", "String", True)]
 
 
 def test_get_resource_type_by_slug_returns_dict_unchanged():
     expected = {
         "id": "def_interface-traffic",
         "slug": "interface-traffic",
-        "type": "data",
+        "data_fields": [("if_name", "String", True)],
     }
     storage = DummyStorage(expected)
 

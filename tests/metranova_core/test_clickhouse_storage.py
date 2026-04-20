@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova.storage.base import CollectionField
+from metranova.storage.base import CollectionField, MetaCollectionField
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 
 
@@ -85,7 +85,7 @@ def test_close_closes_client(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    storage.close()
+    asyncio.run(storage.close())
 
     assert storage.client.closed is True
 
@@ -144,12 +144,53 @@ def test_is_connected_false_when_client_missing(monkeypatch):
     assert asyncio.run(storage.is_connected()) is False
 
 
+def test_create_database_standalone_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {"mode": "standalone", "clusters": []}
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage.create_database())
+
+    assert len(storage.client.command_calls) == 1
+    assert (
+        storage.client.command_calls[0]
+        == "CREATE DATABASE IF NOT EXISTS metranova"
+    )
+
+
+def test_create_database_clustered_query(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage.create_database())
+
+    assert len(storage.client.command_calls) == 1
+    assert (
+        storage.client.command_calls[0]
+        == "CREATE DATABASE IF NOT EXISTS metranova ON CLUSTER 'cluster-a'"
+    )
+
+
 def test_create_resource_type_inserts_definition_row(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
@@ -157,21 +198,26 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
 
     storage.client.query = mock_query
 
-    fields = [
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
+    data_fields = [
         CollectionField(field_name="if_name", field_type="String", nullable=True),
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
+    ]
+    meta_fields = [
+        MetaCollectionField(field_name="if_name", field_type="String", nullable=True),
     ]
 
     success = asyncio.run(
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=fields,
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=data_fields,
+            meta_fields=meta_fields,
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -182,10 +228,64 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     call = storage.client.insert_calls[0]
     assert call["database"] == "metranova"
     assert call["table"] == "definition"
-    assert call["data"][0][3] == "interface-traffic"
-    assert call["data"][0][7] == [
+    assert len(call["data"]) == 1
+    definition_row = call["data"][0]
+    assert definition_row[3] == "interface-traffic"
+    assert definition_row[4] == [
+        ("if_name", "String", True, ""),
+    ]
+    assert definition_row[5] == [
         ("if_name", "String", True),
         ("rx_bps", "Float64", False),
+    ]
+    assert definition_row[6] == ["if_name"]
+    assert definition_row[7] == "365 DAY"
+
+
+def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Array", "Nullable", "LowCardinality"]
+
+    storage._get_ch_types = mock_get_ch_types
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Alias",
+            slug="interface-alias",
+            data_fields=[
+                CollectionField(field_name="if_name", field_type="string", nullable=True),
+                CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
+            ],
+            meta_fields=[
+                MetaCollectionField(field_name="if_name", field_type="reference", nullable=True, table="interfaces"),
+                MetaCollectionField(field_name="site", field_type="nullable(string)", nullable=True),
+            ],
+            identifier=["if_name"],
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is True
+    call = storage.client.insert_calls[0]
+    definition_row = call["data"][0]
+    assert definition_row[5] == [
+        ("if_name", "String", True),
+        ("aliases", "Array(String)", True),
+    ]
+    assert definition_row[4] == [
+        ("if_name", "String", True, "interfaces"),
+        ("site", "Nullable(String)", True, ""),
     ]
 
 
@@ -194,13 +294,17 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
 
-    # Mock query to return empty results for slug lookup but [[1]] for EXISTS TABLE
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     async def failing_insert(**kwargs):
         raise RuntimeError("insert failed")
@@ -211,12 +315,9 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -228,7 +329,7 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
 def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     monkeypatch,
 ):
-    """If the data/meta table cannot be created, the definition row must not be inserted."""
+    """If the data table cannot be created, neither table nor definition row is written."""
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = DummyAsyncClient()
@@ -240,6 +341,11 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
 
     storage.client.query = mock_query
 
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
     async def failing_command(query):
         raise RuntimeError("DDL failed")
 
@@ -249,19 +355,15 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
 
     assert success[0] is False
-    assert success[1] == "Error during table creation"
-    # Definition row must NOT have been written
+    assert success[1] == "Error during data table creation"
     assert len(storage.client.insert_calls) == 0
 
 
@@ -291,6 +393,27 @@ def test_ensure_definition_table_creates_when_missing(monkeypatch):
     )
 
 
+def test_ensure_definition_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [[0]]
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage._ensure_definition_table())
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
+
+
 def test_create_data_table_executes_expected_query(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -300,7 +423,6 @@ def test_create_data_table_executes_expected_query(monkeypatch):
         storage.create_data_table(
             slug="interface_traffic",
             primary_key=["if_name", "timestamp"],
-            partition_by="toYYYYMM(timestamp)",
             ttl="365 DAY",
             engine="MergeTree()",
             fields=[
@@ -317,10 +439,38 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     assert "`if_name` String NOT NULL" in query
     assert "`rx_bps` Float64" in query
     assert "PRIMARY KEY (collector_id, `if_name`, `timestamp`)" in query
-    assert "PARTITION BY toYYYYMM(timestamp)" in query
+    assert "PARTITION BY toYYYYMM(insert_time)" in query
     assert "ORDER BY (collector_id, `if_name`, `timestamp`)" in query
     assert "TTL insert_time + INTERVAL 365 DAY" in query
     assert "insert_time DateTime DEFAULT now()," in query
+
+
+def test_create_data_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(
+        storage.create_data_table(
+            slug="interface_traffic",
+            primary_key=["if_name"],
+            ttl="365 DAY",
+            engine="MergeTree()",
+            fields=[("if_name", "String", False)],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
 
 
 def test_create_meta_table_executes_expected_query(monkeypatch):
@@ -336,7 +486,6 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
                 MetadataField(name="site", type="String", nullable=True),
             ],
             engine="MergeTree()",
-            partition_by="toYYYYMM(insert_time)",
             primary_key=["hostname"],
         )
     )
@@ -349,6 +498,33 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert "PRIMARY KEY (id, `hostname`)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
     assert "ORDER BY (id, `hostname`)" in query
+
+
+def test_create_meta_table_uses_on_cluster_when_clustered(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(
+        storage.create_meta_table(
+            slug="device_inventory",
+            fields=[("hostname", "String", False)],
+            engine="MergeTree()",
+            primary_key=["hostname"],
+        )
+    )
+
+    assert len(storage.client.command_calls) == 1
+    assert "ON CLUSTER 'cluster-a'" in storage.client.command_calls[0]
 
 
 def test_add_columns_to_table_rejects_malicious_field_name(monkeypatch):
@@ -393,7 +569,6 @@ def test_create_data_table_rejects_malicious_primary_key_identifier(monkeypatch)
             storage.create_data_table(
                 slug="interface_traffic",
                 primary_key=["if_name`, now()); DROP TABLE metranova.definition;--"],
-                partition_by="toYYYYMM(timestamp)",
                 ttl="365 DAY",
                 engine="MergeTree()",
                 fields=[("if_name", "String", False)],
@@ -415,7 +590,6 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
                 fields=[
                     MetadataField(name="hostname", type="String/*bad*/", nullable=False)],
                 engine="MergeTree()",
-                partition_by="toYYYYMM(insert_time)",
                 primary_key=["hostname"],
             )
         )
@@ -442,12 +616,9 @@ def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
             "def_interface-traffic__v1",
             "Interface Traffic",
             "interface-traffic",
-            "data",
-            "kafka",
-            '{"topic":"snmp.metrics"}',
+            [("if_name", "String", True, "")],
             [("if_name", "String", True)],
             ["if_name"],
-            "toYYYYMM(timestamp)",
             "365 DAY",
             "MergeTree()",
             True,
@@ -460,8 +631,8 @@ def test_find_all_resource_types_returns_list_of_dicts(monkeypatch):
     assert isinstance(result, list)
     assert isinstance(result[0], dict)
     assert result[0]["slug"] == "interface-traffic"
-    assert result[0]["type"] == "data"
-    assert result[0]["primary_key"] == ["if_name"]
+    assert result[0]["data_fields"] == [("if_name", "String", True)]
+    assert result[0]["identifier"] == ["if_name"]
 
 
 def test_find_all_resource_types_returns_none_on_query_error(monkeypatch):
@@ -625,12 +796,9 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
         storage.create_resource_type(
             name="Interface Traffic",
             slug="interface-traffic",
-            collection_type="data",
-            consumer_type="kafka",
-            consumer_config={"topic": "snmp.metrics"},
-            fields=[CollectionField("if_name", "String", True)],
-            primary_key=["if_name"],
-            partition_by="toYYYYMM(timestamp)",
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            identifier=["if_name"],
             ttl="365 DAY",
         )
     )
@@ -650,12 +818,9 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
         "def_ip_address__v1",
         "IP Address",
         "ip_address",
-        "data",
-        "kafka",
-        '{"topic": "snmp.metrics", "ext": {"owner": "ops"}}',
+        [("ip", "String", False, "")],
         [("ip", "String", False)],
         ["ip"],
-        "toYYYYMM(insert_time)",
         "365 DAY",
         "MergeTree()",
         True,
@@ -666,6 +831,11 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
         return existing if slug == "ip_address" else None
 
     storage.find_resource_type_by_slug = mock_find
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
 
     success = asyncio.run(
         storage.update_resource_type(
@@ -685,11 +855,8 @@ def test_update_resource_type_adds_new_fields_and_increments_ref(monkeypatch):
     assert len(storage.client.insert_calls) == 1
     row = storage.client.insert_calls[0]["data"][0]
     assert row[1] == "def_ip_address__v2"
-    assert ("hostname", "String", True) in row[7]
-    merged_config = json.loads(row[6])
-    assert merged_config["topic"] == "snmp.metrics.v2"
-    assert merged_config["ext"]["owner"] == "ops"
-    assert merged_config["ext"]["team"] == "network"
+    assert ("hostname", "String", True) in row[5]
+    assert row[6] == ["ip"]
 
 
 def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
@@ -702,12 +869,9 @@ def test_update_resource_type_fails_when_field_already_exists(monkeypatch):
         "ref": "def_ip_address__v1",
         "name": "IP Address",
         "slug": "ip_address",
-        "type": "data",
-        "consumer_type": "kafka",
-        "consumer_config": "{}",
-        "fields": [("ip", "String", False)],
-        "primary_key": ["ip"],
-        "partition_by": "toYYYYMM(insert_time)",
+        "meta_fields": [("ip", "String", False, "")],
+        "data_fields": [("ip", "String", False)],
+        "identifier": ["ip"],
         "ttl": "365 DAY",
         "engine_type": "MergeTree()",
         "is_replicated": True,

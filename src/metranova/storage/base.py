@@ -20,6 +20,13 @@ class CollectionField:
     nullable: bool = True
 
 
+@dataclass
+class MetaCollectionField(CollectionField):
+    """A metadata collection field. Supports 'reference' as a field_type
+    in addition to all standard ClickHouse types."""
+    table: str | None = None
+
+
 class StorageEngine(ABC):
     def __init__(self):
         super().__init__()
@@ -33,23 +40,19 @@ class StorageEngine(ABC):
         pass
 
     @abstractmethod
-    def close(self):
+    async def close(self):
         pass
 
     @abstractmethod
     async def create_resource_type(
         self,
         name: str,
-        slug: str,
-        collection_type: CollectionType,
-        consumer_type: ConsumerType,
-        consumer_config: dict,
-        fields: list[CollectionField],
-        primary_key: list[str],
-        partition_by: str,
-        ttl: str,
+        slug: str | None = None,
+        data_fields: list[CollectionField] | None = None,
+        meta_fields: list[MetaCollectionField] | None = None,
+        identifier: list[str] | None = None,
+        ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
-        is_replicated: bool = True,
     ) -> tuple[bool, str]:
         pass
 
