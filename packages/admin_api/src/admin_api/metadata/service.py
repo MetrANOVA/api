@@ -284,7 +284,7 @@ class MetadataService:
             python_type = resolve_python_type(field_type)
             if v is not None and type(v) != python_type:
                 raise ValueError(
-                    f"Field' {field_name}' is not of type '{python_type.__name__}'."
+                    f"Field '{field_name}' is not of type '{python_type.__name__}'."
                 )
         return definition
 
