@@ -23,7 +23,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
 
     suites = [
-        ("metranova_core", "tests/metranova_core"),
+        ("metranova", "tests/metranova_core"),
         ("admin_api", "packages/admin_api/tests"),
         ("pipeline", "packages/pipeline/test"),
     ]
