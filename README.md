@@ -78,7 +78,6 @@ The devcontainer spins up a full local development environment using Docker Comp
 ### Starting the environment
 
 If you haven't already load git submodules.
-
 ```
 make setup
 ```

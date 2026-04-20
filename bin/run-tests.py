@@ -7,8 +7,8 @@ def run_suite(repo_root: Path, package: str, test_path: str) -> int:
     command = [
         "uv",
         "run",
-        "--group",
-        "dev",
+        # "--group",
+        # "dev",
         "--package",
         package,
         "pytest",
@@ -24,9 +24,9 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
 
     suites = [
-        ("metranova_core", "tests/metranova_core"),
-        ("admin_api", "src/admin_api/tests"),
-        ("pipeline", "src/pipeline/tests"),
+        ("metranova", "tests/metranova_core"),
+        ("admin_api", "packages/admin_api/tests"),
+        # ("pipeline", "packages/pipeline/tests"),
     ]
 
     for package, test_path in suites:

@@ -13,12 +13,9 @@ class FakeStorage:
             "ref": "def_interface-traffic__v1",
             "name": "Interface Traffic",
             "slug": "interface-traffic",
-            "type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": '{"topic":"snmp.metrics"}',
-            "fields": [("if_name", "String", True), ("timestamp", "DateTime64", False)],
-            "primary_key": ["if_name", "timestamp"],
-            "partition_by": "toYYYYMM(timestamp)",
+            "meta_fields": [("if_name", "String", True, "")],
+            "data_fields": [("if_name", "String", True), ("timestamp", "DateTime64", False)],
+            "identifier": ["if_name", "timestamp"],
             "ttl": "365 DAY",
             "engine_type": "MergeTree()",
             "is_replicated": True,
@@ -32,28 +29,20 @@ class FakeStorage:
         self,
         name,
         slug,
-        collection_type,
-        consumer_type,
-        consumer_config,
-        fields,
-        primary_key,
-        partition_by,
+        data_fields,
+        meta_fields,
+        identifier,
         ttl,
-        engine_type,
-        is_replicated,
+        engine_type="CoalescingMergeTree",
     ):
         self.created_payload = {
             "name": name,
             "slug": slug,
-            "collection_type": collection_type,
-            "consumer_type": consumer_type,
-            "consumer_config": consumer_config,
-            "fields": fields,
-            "primary_key": primary_key,
-            "partition_by": partition_by,
+            "data_fields": data_fields,
+            "meta_fields": meta_fields,
+            "identifier": identifier,
             "ttl": ttl,
             "engine_type": engine_type,
-            "is_replicated": is_replicated,
         }
         return True, f"Type {name} has been successfully created"
 
@@ -108,31 +97,25 @@ def test_type_api_crud_flow(api_client):
 
     create_payload = {
         "name": "Interface Traffic",
-        "slug": "interface-traffic",
-        "collection_type": "data",
-        "consumer_type": "kafka",
-        "consumer_config": {"topic": "snmp.metrics"},
-        "fields": [
+        "data_fields": [
             {"field_name": "if_name", "field_type": "string", "nullable": True},
-            {
-                "field_name": "timestamp",
-                "field_type": "datetime64",
-                "nullable": False,
-            },
+            {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
         ],
-        "primary_key": ["if_name", "timestamp"],
-        "partition_by": "toYYYYMM(timestamp)",
+        "meta_fields": [
+            {"field_name": "if_name", "field_type": "string", "nullable": True},
+            {"field_name": "timestamp", "field_type": "datetime64", "nullable": False},
+        ],
+        "identifier": ["if_name", "timestamp"],
         "ttl": "365 DAY",
-        "engine_type": "MergeTree()",
-        "is_replicated": True,
     }
 
     create_response = client.post("/type/", json=create_payload)
     assert create_response.status_code == 200
     assert "successfully created" in create_response.json()["message"]
     assert fake_storage.created_payload is not None
-    assert fake_storage.created_payload["fields"][0].field_type == "String"
-    assert fake_storage.created_payload["fields"][1].field_type == "DateTime64"
+    assert fake_storage.created_payload["slug"] == "interface-traffic"
+    assert fake_storage.created_payload["data_fields"][0].field_type == "string"
+    assert fake_storage.created_payload["data_fields"][1].field_type == "datetime64"
 
     list_response = client.get("/type/")
     assert list_response.status_code == 200
@@ -206,18 +189,10 @@ def test_type_api_create_returns_500_on_duplicate_slug(api_client, monkeypatch):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "slug": "interface-traffic",
-            "collection_type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": {"topic": "snmp.metrics"},
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True}
-            ],
-            "primary_key": ["if_name"],
-            "partition_by": "toYYYYMM(timestamp)",
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "identifier": ["if_name"],
             "ttl": "365 DAY",
-            "engine_type": "MergeTree()",
-            "is_replicated": True,
         },
     )
 
@@ -251,18 +226,10 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "slug": "interface-traffic",
-            "collection_type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": {"topic": "snmp.metrics"},
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True}
-            ],
-            "primary_key": ["if_name"],
-            "partition_by": "toYYYYMM(timestamp)",
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "identifier": ["if_name"],
             "ttl": "invalid ttl",
-            "engine_type": "MergeTree()",
-            "is_replicated": True,
         },
     )
 
@@ -270,7 +237,7 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
     assert "ttl" in str(response.json()).lower()
 
 
-def test_type_api_create_returns_422_for_invalid_slug(api_client):
+def test_type_api_create_ignores_slug_in_request_body(api_client):
     client, _ = api_client
 
     response = client.post(
@@ -278,45 +245,29 @@ def test_type_api_create_returns_422_for_invalid_slug(api_client):
         json={
             "name": "Interface Traffic",
             "slug": "Interface Traffic",
-            "collection_type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": {"topic": "snmp.metrics"},
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True}
-            ],
-            "primary_key": ["if_name"],
-            "partition_by": "toYYYYMM(timestamp)",
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "identifier": ["if_name"],
             "ttl": "365 DAY",
-            "engine_type": "MergeTree()",
-            "is_replicated": True,
         },
     )
 
-    assert response.status_code == 422
-    assert "slug" in str(response.json()).lower()
+    assert response.status_code == 200
 
 
-def test_type_api_create_returns_422_for_invalid_partition_by(api_client):
+def test_type_api_create_ignores_partition_by_in_request_body(api_client):
     client, _ = api_client
 
     response = client.post(
         "/type/",
         json={
             "name": "Interface Traffic",
-            "slug": "interface-traffic",
-            "collection_type": "data",
-            "consumer_type": "kafka",
-            "consumer_config": {"topic": "snmp.metrics"},
-            "fields": [
-                {"field_name": "if_name", "field_type": "string", "nullable": True}
-            ],
-            "primary_key": ["if_name"],
+            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "identifier": ["if_name"],
             "partition_by": "toYYYYMM(timestamp; DROP TABLE metranova.definition)",
             "ttl": "365 DAY",
-            "engine_type": "MergeTree()",
-            "is_replicated": True,
         },
     )
 
-    assert response.status_code == 422
-    assert "partition_by" in str(response.json()).lower()
+    assert response.status_code == 200
