@@ -145,7 +145,7 @@ class MetadataService:
                         "metadata",
                         [(f.name, f.type, f.nullable) for f in fields],
                         identifier,
-                        "ttl",
+                        "",
                     ]
                 ],
                 column_names=[
