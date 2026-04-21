@@ -297,7 +297,7 @@ class MetadataService:
     async def create_metadata_record(
         self, definition: dict[str, any], record: dict[str, any]
     ):
-        table = f"meta_{definition["slug"]}"
+        table = f"meta_{definition['slug']}"
 
         record["id"] = "::".join([record[i] for i in definition["identifier"]])
 
@@ -334,7 +334,7 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
-        record["hash"] = "examplehash"
+        record["hash"] = compute_record_hash(record)
         record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
 

@@ -6,7 +6,7 @@ CREATE DATABASE IF NOT EXISTS metranova;
 
 CREATE TABLE IF NOT EXISTS metranova.definition 
 (
-id String,                -- Stable external identifier (e.g., 'def_interface_01')
+    id String,                -- Stable external identifier (e.g., 'def_interface_01')
     ref String,               -- Immutable snapshot version (e.g., 'def_interface_01__v1')
     
     name String,              -- e.g., 'Interface Traffic'

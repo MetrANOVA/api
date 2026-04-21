@@ -499,7 +499,7 @@ class Clickhouse(StorageEngine):
         ENGINE = {self._validated_engine_name(self.metadata_engine)}()
         ORDER BY (id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (id, {', '.join(safe_primary_keys)})
-        PARTITION BY toYYYYMM(insert_time);
+        PARTITION BY toYYYYMM(created_at);
         """
 
         logger.info(query)
@@ -605,6 +605,8 @@ class Clickhouse(StorageEngine):
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
+        # TODO: Consider ENGINE type for this table. Maybe it should always be a
+        # MergeTree?
         await self.client.command(
             f"""
             CREATE TABLE IF NOT EXISTS metranova.definition{on_cluster_clause}

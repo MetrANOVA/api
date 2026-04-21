@@ -493,7 +493,7 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert "`hostname` String NOT NULL" in query
     assert "`site` String" in query
     assert "PRIMARY KEY (id, `hostname`)" in query
-    assert "PARTITION BY toYYYYMM(insert_time)" in query
+    assert "PARTITION BY toYYYYMM(created_at)" in query
     assert "ORDER BY (id, `hostname`)" in query
 
 
