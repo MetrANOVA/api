@@ -2,7 +2,8 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 
 from metranova.storage.clickhouse import Clickhouse
-from metranova.storage.base import CollectionField, MetaCollectionField
+from metranova.storage.base import CollectionField
+from admin_api.metadata.service import MetadataField
 from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 
@@ -25,9 +26,9 @@ async def create_resource_type(
         for f in request.data_fields
     ]
     meta_fields = [
-        MetaCollectionField(
-            field_name=f.field_name,
-            field_type=f.field_type,
+        MetadataField(
+            name=f.field_name,
+            type=f.field_type,
             nullable=f.nullable,
             table=f.table,
         )

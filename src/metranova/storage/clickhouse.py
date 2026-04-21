@@ -5,7 +5,10 @@ import logging
 import os
 import re
 
-from .base import StorageEngine, CollectionField, MetaCollectionField, CollectionType, ConsumerType
+from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
+from admin_api.metadata.service import MetadataField
+from clickhouse_connect.driver.query import QueryResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,9 @@ class Clickhouse(StorageEngine):
 
     def __init__(self):
         super().__init__()
+
+        self.metadata_engine = "MergeTree"
+        self.data_engine = "CoalescingMergeTree"
 
         # ClickHouse configuration from environment
         self.host = os.getenv("CLICKHOUSE_HOST", "localhost")
@@ -64,6 +70,12 @@ class Clickhouse(StorageEngine):
             logger.info(
                 f"Connected to ClickHouse at {self.host}:{self.port}, database: {self.database}"
             )
+
+            clusters: QueryResult = await self.client.query("select * from system.clusters")
+            if clusters.row_count > 1:
+                logger.info("ClickHouse cluster configuration detected. Using cluster-aware database engines.")
+                self.metadata_engine = "ReplicatedMergeTree"
+                self.data_engine = "ReplicatedCoalescingMergeTree"
         except Exception as e:
             logger.error(f"Failed to connect to ClickHouse: {e}")
             raise
@@ -111,6 +123,11 @@ class Clickhouse(StorageEngine):
             raise ValueError(f"Invalid identifier: {name}")
         return f"`{name}`"
 
+    def _validated_engine_name(self, engine: str) -> str:
+        if not self._IDENTIFIER_PATTERN.fullmatch(engine):
+            raise ValueError(f"Invalid engine name: {engine}")
+        return engine
+
     def _validated_column_type(self, field_type: str) -> str:
         value = field_type.strip()
         if not value:
@@ -142,7 +159,7 @@ class Clickhouse(StorageEngine):
         name: str,
         slug: str | None = None,
         data_fields: list[CollectionField] | None = None,
-        meta_fields: list[MetaCollectionField] | None = None,
+        meta_fields: list[MetadataField] | None = None,
         identifier: list[str] | None = None,
         ttl: str = "",
         engine_type: str = "CoalescingMergeTree",
@@ -174,25 +191,31 @@ class Clickhouse(StorageEngine):
         for f in data_fields:
             f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
 
-        # Validate meta field types — "reference" is a logical type, accepted as-is
+        # Validate meta field types — "reference" is a logical type, accepted as-is.
+        # Track original table values before normalization for definition storage.
+        original_tables = {f.name: f.table for f in meta_fields}
+        normalized_meta = []
         for f in meta_fields:
-            if f.field_type.lower() != "reference":
-                f.field_type = self._canonicalize_column_type(f.field_type, ch_types)
+            if f.type.lower() != "reference":
+                normalized_type = self._canonicalize_column_type(f.type, ch_types)
+                normalized_meta.append(MetadataField(name=f.name, type=normalized_type, nullable=f.nullable, table=f.table))
             else:
-                f.field_type = "String"
+                normalized_meta.append(MetadataField(name=f.name, type="String", nullable=f.nullable, table=None))
 
-        # Verify all identifier fields are present in data fields
-        meta_field_names = {f.field_name for f in meta_fields}
+        # Verify all identifier fields are present in meta fields
+        meta_field_names = {f.name for f in normalized_meta}
         missing = [key for key in identifier if key not in meta_field_names]
         if missing:
-            logger.error(f"Identifier fields missing from data fields: {missing}")
-            return False, f"identifier fields not found in data fields: {missing}"
+            logger.error(f"Identifier fields missing from meta fields: {missing}")
+            return False, f"identifier fields not found in meta fields: {missing}"
 
         data_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in data_fields]
+        # Store normalized type but preserve original table reference in the definition.
         meta_fields_tuple = [
-            (f.field_name, f.field_type, f.nullable, f.table or "")
-            for f in meta_fields
+            (f.name, f.type, f.nullable, original_tables.get(f.name) or "")
+            for f in normalized_meta
         ]
+        meta_fields = normalized_meta
 
         cluster_info = await self.get_cluster_info()
         is_replicated = cluster_info["mode"] == "clustered"
@@ -202,7 +225,7 @@ class Clickhouse(StorageEngine):
         # definition insert leaves orphaned tables (recoverable) rather than
         # definition rows pointing at non-existent tables (not recoverable).
         try:
-            await self.create_data_table(slug, identifier, ttl, engine_type, data_fields_tuple)
+            await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
         except Exception as e:
             logger.exception(f"Error creating data table for '{slug}': {e}")
             return False, "Error during data table creation"
@@ -210,17 +233,17 @@ class Clickhouse(StorageEngine):
         try:
             # Reference-type fields are logical; skip them in the physical DDL
             physical_meta_fields = [
-                (f.field_name, f.field_type, f.nullable)
+                MetadataField(name=f.name, type=f.type, nullable=f.nullable)
                 for f in meta_fields
-                if f.field_type.lower() != "reference"
+                if f.type.lower() != "reference"
             ]
-            await self.create_meta_table(slug, physical_meta_fields, engine_type, identifier)
+            await self.create_meta_table(slug, physical_meta_fields, identifier)
         except Exception as e:
             logger.exception(f"Error creating meta table for '{slug}': {e}")
             return False, "Error during meta table creation"
 
         column_names = [
-            "id", "ref", "name", "slug", 
+            "id", "ref", "name", "slug", "type",
             "meta_fields", "data_fields", "identifier", "ttl", "engine_type", "is_replicated",
         ]
 
@@ -229,6 +252,7 @@ class Clickhouse(StorageEngine):
             f"{definition_id}__v1",
             name,
             slug,
+            "data",
             meta_fields_tuple,
             data_fields_tuple,
             identifier,
@@ -400,7 +424,6 @@ class Clickhouse(StorageEngine):
         slug: str,
         primary_key: list[str],
         ttl: str,
-        engine: str,
         fields: list[tuple[str, str, bool]],
     ):
         field_columns = []
@@ -427,7 +450,7 @@ class Clickhouse(StorageEngine):
             {",\n".join(field_columns)},
             ext JSON
         )
-        ENGINE = {engine}
+        ENGINE = {self._validated_engine_name(self.data_engine)}()
         ORDER BY (collector_id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
         PARTITION BY toYYYYMM(insert_time)
@@ -444,16 +467,15 @@ class Clickhouse(StorageEngine):
     async def create_meta_table(
         self,
         slug: str,
-        fields: list[tuple[str, str, bool]],
-        engine: str,
+        fields: list[MetadataField],
         primary_key: list[str],
     ):
         field_columns = []
         for f in fields:
-            safe_field_name = self._quoted_identifier(f[0])
-            safe_field_type = self._validated_column_type(f[1])
+            safe_field_name = self._quoted_identifier(f.name)
+            safe_field_type = self._validated_column_type(f.type)
             col = f"{safe_field_name} {safe_field_type}"
-            if f[2] is False:
+            if f.nullable is False:
                 col += " NOT NULL"
             field_columns.append(col)
 
@@ -466,23 +488,24 @@ class Clickhouse(StorageEngine):
             id String NOT NULL,
             ref String NOT NULL,
             hash String NOT NULL,
-            insert_time DateTime DEFAULT now() NOT NULL,
-            tags Array(LowCardinality(String)), 
+            created_at DateTime DEFAULT now() NOT NULL,
+            updated_at DateTime DEFAULT now() NOT NULL,
+            tag Array(LowCardinality(String)), 
             policy_level LowCardinality(String) NOT NULL,
             policy_scope Array(LowCardinality(String)) NOT NULL,
             policy_originator LowCardinality(String) NOT NULL,
             {",\n".join(field_columns)},
             ext JSON
         )
-        ENGINE = {engine}
+        ENGINE = {self._validated_engine_name(self.metadata_engine)}()
         ORDER BY (id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (id, {', '.join(safe_primary_keys)})
-        PARTITION BY toYYYYMM(insert_time);
+        PARTITION BY toYYYYMM(created_at);
         """
 
         logger.info(query)
         try:
-            await self.client.command(query)
+            return await self.client.command(query)
         except Exception as e:
             logger.exception(e)
             raise
@@ -583,6 +606,8 @@ class Clickhouse(StorageEngine):
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
+        # TODO: Consider ENGINE type for this table. Maybe it should always be a
+        # MergeTree?
         await self.client.command(
             f"""
             CREATE TABLE IF NOT EXISTS metranova.definition{on_cluster_clause}
@@ -591,6 +616,7 @@ class Clickhouse(StorageEngine):
                 ref String,
                 name String,
                 slug String,
+                type Enum8('data' = 1, 'metadata' = 2),
                 meta_fields Array(Tuple(
                     field_name String,
                     field_type String,
@@ -608,7 +634,7 @@ class Clickhouse(StorageEngine):
                 is_replicated Bool DEFAULT true,
                 updated_at DateTime DEFAULT now()
             )
-            ENGINE = MergeTree()
+            ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY ref
         """
         )

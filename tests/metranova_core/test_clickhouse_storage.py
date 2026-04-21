@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from metranova.storage.base import CollectionField, MetaCollectionField
+from metranova.storage.base import CollectionField, MetadataField
 from metranova.storage.clickhouse import Clickhouse
 
 
@@ -35,9 +35,25 @@ class DummyAsyncClient:
     async def insert(self, **kwargs):
         self.insert_calls.append(kwargs)
 
+    _DEFINITION_COLUMNS = [
+        "id", "ref", "name", "slug", "type", "consumer_type",
+        "consumer_config", "fields", "primary_key", "partition_by",
+        "ttl", "engine_type", "is_replicated", "updated_at",
+    ]
+
     async def query(self, query, parameters=None):
         self.query_calls.append((query, parameters))
-        return SimpleNamespace(result_rows=self.query_result)
+        rows = self.query_result
+
+        def named_results():
+            for row in rows:
+                yield dict(zip(DummyAsyncClient._DEFINITION_COLUMNS, row))
+
+        return SimpleNamespace(
+            result_rows=rows,
+            row_count=len(rows),
+            named_results=named_results,
+        )
 
     async def command(self, query):
         self.command_calls.append(query)
@@ -192,7 +208,7 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
         CollectionField(field_name="rx_bps", field_type="Float64", nullable=False),
     ]
     meta_fields = [
-        MetaCollectionField(field_name="if_name", field_type="String", nullable=True),
+        MetadataField(name="if_name", type="String", nullable=True),
     ]
 
     success = asyncio.run(
@@ -215,15 +231,16 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     assert len(call["data"]) == 1
     definition_row = call["data"][0]
     assert definition_row[3] == "interface-traffic"
-    assert definition_row[4] == [
+    assert definition_row[4] == "data"
+    assert definition_row[5] == [
         ("if_name", "String", True, ""),
     ]
-    assert definition_row[5] == [
+    assert definition_row[6] == [
         ("if_name", "String", True),
         ("rx_bps", "Float64", False),
     ]
-    assert definition_row[6] == ["if_name"]
-    assert definition_row[7] == "365 DAY"
+    assert definition_row[7] == ["if_name"]
+    assert definition_row[8] == "365 DAY"
 
 
 def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
@@ -252,8 +269,8 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
                 CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
             ],
             meta_fields=[
-                MetaCollectionField(field_name="if_name", field_type="reference", nullable=True, table="interfaces"),
-                MetaCollectionField(field_name="site", field_type="nullable(string)", nullable=True),
+                MetadataField(name="if_name", type="reference", nullable=True, table="interfaces"),
+                MetadataField(name="site", type="nullable(string)", nullable=True),
             ],
             identifier=["if_name"],
             ttl="365 DAY",
@@ -263,11 +280,11 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
     assert success[0] is True
     call = storage.client.insert_calls[0]
     definition_row = call["data"][0]
-    assert definition_row[5] == [
+    assert definition_row[6] == [
         ("if_name", "String", True),
         ("aliases", "Array(String)", True),
     ]
-    assert definition_row[4] == [
+    assert definition_row[5] == [
         ("if_name", "String", True, "interfaces"),
         ("site", "Nullable(String)", True, ""),
     ]
@@ -300,7 +317,7 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )
@@ -340,7 +357,7 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )
@@ -408,7 +425,6 @@ def test_create_data_table_executes_expected_query(monkeypatch):
             slug="interface_traffic",
             primary_key=["if_name", "timestamp"],
             ttl="365 DAY",
-            engine="MergeTree()",
             fields=[
                 ("if_name", "String", False),
                 ("timestamp", "DateTime64", False),
@@ -448,7 +464,6 @@ def test_create_data_table_uses_on_cluster_when_clustered(monkeypatch):
             slug="interface_traffic",
             primary_key=["if_name"],
             ttl="365 DAY",
-            engine="MergeTree()",
             fields=[("if_name", "String", False)],
         )
     )
@@ -466,10 +481,9 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
         storage.create_meta_table(
             slug="device_inventory",
             fields=[
-                ("hostname", "String", False),
-                ("site", "String", True),
+                MetadataField(name="hostname", type="String", nullable=False),
+                MetadataField(name="site", type="String", nullable=True),
             ],
-            engine="MergeTree()",
             primary_key=["hostname"],
         )
     )
@@ -480,7 +494,7 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
     assert "`hostname` String NOT NULL" in query
     assert "`site` String" in query
     assert "PRIMARY KEY (id, `hostname`)" in query
-    assert "PARTITION BY toYYYYMM(insert_time)" in query
+    assert "PARTITION BY toYYYYMM(created_at)" in query
     assert "ORDER BY (id, `hostname`)" in query
 
 
@@ -501,8 +515,7 @@ def test_create_meta_table_uses_on_cluster_when_clustered(monkeypatch):
     asyncio.run(
         storage.create_meta_table(
             slug="device_inventory",
-            fields=[("hostname", "String", False)],
-            engine="MergeTree()",
+            fields=[MetadataField(name="hostname", type="String", nullable=False)],
             primary_key=["hostname"],
         )
     )
@@ -554,7 +567,6 @@ def test_create_data_table_rejects_malicious_primary_key_identifier(monkeypatch)
                 slug="interface_traffic",
                 primary_key=["if_name`, now()); DROP TABLE metranova.definition;--"],
                 ttl="365 DAY",
-                engine="MergeTree()",
                 fields=[("if_name", "String", False)],
             )
         )
@@ -571,8 +583,8 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
         asyncio.run(
             storage.create_meta_table(
                 slug="device_inventory",
-                fields=[("hostname", "String/*bad*/", False)],
-                engine="MergeTree()",
+                fields=[
+                    MetadataField(name="hostname", type="String/*bad*/", nullable=False)],
                 primary_key=["hostname"],
             )
         )
@@ -643,11 +655,9 @@ def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
 
     result = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
 
-    assert result == (
-        "def_interface-traffic",
-        "def_interface-traffic__v1",
-        "Interface Traffic",
-    )
+    assert result["id"] == "def_interface-traffic"
+    assert result["ref"] == "def_interface-traffic__v1"
+    assert result["name"] == "Interface Traffic"
     query, parameters = storage.client.query_calls[0]
     assert "WHERE slug = %s" in query
     assert parameters == ["interface-traffic"]
@@ -686,16 +696,29 @@ def test_find_resource_type_schema_by_slug_returns_schema_dict_for_data(monkeypa
 
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
+            _COLS = [
+                "id", "ref", "name", "slug", "type", "consumer_type",
+                "consumer_config", "fields", "primary_key", "partition_by",
+                "ttl", "engine_type", "is_replicated", "updated_at",
+            ]
+            rows = [
+                (
+                    "def_interface-traffic",
+                    "def_interface-traffic__v1",
+                    "Interface Traffic",
+                    "interface-traffic",
+                    "data",
+                )
+            ]
+
+            def named_results():
+                for r in rows:
+                    yield dict(zip(_COLS, r))
+
             return SimpleNamespace(
-                result_rows=[
-                    (
-                        "def_interface-traffic",
-                        "def_interface-traffic__v1",
-                        "Interface Traffic",
-                        "interface-traffic",
-                        "data",
-                    )
-                ]
+                result_rows=rows,
+                row_count=len(rows),
+                named_results=named_results,
             )
         if "DESCRIBE TABLE" in query:
             return SimpleNamespace(
@@ -742,14 +765,24 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
     async def mock_query(query, parameters=None):
         # EXISTS query returns [[0]] or [[1]]
         if "EXISTS TABLE" in query:
-            return SimpleNamespace(result_rows=[[1]])
+            return SimpleNamespace(result_rows=[[1]], row_count=1)
         # Query for slug returns a result tuple
         if (
             "WHERE slug" in query
             and parameters
             and parameters[0] == "interface-traffic"
         ):
-            return SimpleNamespace(result_rows=[("def_interface-traffic", "...")])
+            rows = [("def_interface-traffic", "...")]
+
+            def named_results():
+                for r in rows:
+                    yield {"id": r[0]}
+
+            return SimpleNamespace(
+                result_rows=rows,
+                row_count=len(rows),
+                named_results=named_results,
+            )
         return await original_query(query, parameters)
 
     storage.client.query = mock_query
@@ -759,7 +792,7 @@ def test_create_resource_type_returns_false_when_slug_already_exists(monkeypatch
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetaCollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
             identifier=["if_name"],
             ttl="365 DAY",
         )

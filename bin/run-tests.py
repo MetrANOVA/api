@@ -7,8 +7,7 @@ def run_suite(repo_root: Path, package: str, test_path: str) -> int:
     command = [
         "uv",
         "run",
-        # "--group",
-        # "dev",
+        "--all-groups",
         "--package",
         package,
         "pytest",
@@ -26,7 +25,7 @@ def main() -> int:
     suites = [
         ("metranova", "tests/metranova_core"),
         ("admin_api", "packages/admin_api/tests"),
-        # ("pipeline", "packages/pipeline/tests"),
+        ("pipeline", "packages/pipeline/test"),
     ]
 
     for package, test_path in suites:

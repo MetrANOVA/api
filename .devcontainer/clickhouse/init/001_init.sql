@@ -4,29 +4,31 @@
 CREATE DATABASE IF NOT EXISTS metranova;
 
 
-CREATE TABLE IF NOT EXISTS metranova.definition 
+CREATE TABLE IF NOT EXISTS metranova.definition
 (
-id String,                -- Stable external identifier (e.g., 'def_interface_01')
+    id String,                -- Stable external identifier (e.g., 'def_interface_01')
     ref String,               -- Immutable snapshot version (e.g., 'def_interface_01__v1')
-    
+
     name String,              -- e.g., 'Interface Traffic'
     slug String,              -- e.g., 'interface-traffic'
     type Enum8('data' = 1, 'metadata' = 2),
-    consumer_type String,
-    consumer_config String,
-    
-    -- Table Construction Schema
-    fields Array(Tuple(
-        field_name String, 
-        field_type String, 
+
+    meta_fields Array(Tuple(
+        field_name String,
+        field_type String,
+        nullable Bool,
+        table String          -- populated for 'reference' type fields
+    )),
+    data_fields Array(Tuple(
+        field_name String,
+        field_type String,
         nullable Bool
     )),
-    primary_key Array(String),-- e.g., ['interface_ref', 'timestamp']
-    partition_by String,      -- e.g., 'toYYYYMM(timestamp)'
+    identifier Array(String), -- e.g., ['interface_ref', 'timestamp']
     ttl String,               -- e.g., '365 DAY'
     engine_type String DEFAULT 'CoalescingMergeTree',
     is_replicated Bool DEFAULT true,
-    
+
     updated_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
 ORDER BY (ref);
