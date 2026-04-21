@@ -231,15 +231,16 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     assert len(call["data"]) == 1
     definition_row = call["data"][0]
     assert definition_row[3] == "interface-traffic"
-    assert definition_row[4] == [
+    assert definition_row[4] == "data"
+    assert definition_row[5] == [
         ("if_name", "String", True, ""),
     ]
-    assert definition_row[5] == [
+    assert definition_row[6] == [
         ("if_name", "String", True),
         ("rx_bps", "Float64", False),
     ]
-    assert definition_row[6] == ["if_name"]
-    assert definition_row[7] == "365 DAY"
+    assert definition_row[7] == ["if_name"]
+    assert definition_row[8] == "365 DAY"
 
 
 def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
@@ -279,11 +280,11 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
     assert success[0] is True
     call = storage.client.insert_calls[0]
     definition_row = call["data"][0]
-    assert definition_row[5] == [
+    assert definition_row[6] == [
         ("if_name", "String", True),
         ("aliases", "Array(String)", True),
     ]
-    assert definition_row[4] == [
+    assert definition_row[5] == [
         ("if_name", "String", True, "interfaces"),
         ("site", "Nullable(String)", True, ""),
     ]

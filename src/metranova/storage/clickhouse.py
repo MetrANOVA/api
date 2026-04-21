@@ -243,7 +243,7 @@ class Clickhouse(StorageEngine):
             return False, "Error during meta table creation"
 
         column_names = [
-            "id", "ref", "name", "slug", 
+            "id", "ref", "name", "slug", "type",
             "meta_fields", "data_fields", "identifier", "ttl", "engine_type", "is_replicated",
         ]
 
@@ -252,6 +252,7 @@ class Clickhouse(StorageEngine):
             f"{definition_id}__v1",
             name,
             slug,
+            "data",
             meta_fields_tuple,
             data_fields_tuple,
             identifier,
@@ -615,6 +616,7 @@ class Clickhouse(StorageEngine):
                 ref String,
                 name String,
                 slug String,
+                type Enum8('data' = 1, 'metadata' = 2),
                 meta_fields Array(Tuple(
                     field_name String,
                     field_type String,

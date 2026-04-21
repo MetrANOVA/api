@@ -143,7 +143,8 @@ class MetadataService:
                         name,
                         slug,
                         "metadata",
-                        [(f.name, f.type, f.nullable) for f in fields],
+                        [(f.name, f.type, f.nullable, f.table or "") for f in fields],
+                        [],
                         identifier,
                         "",
                     ]
@@ -154,7 +155,8 @@ class MetadataService:
                     "name",
                     "slug",
                     "type",
-                    "fields",
+                    "meta_fields",
+                    "data_fields",
                     "identifier",
                     "ttl",
                 ],
@@ -193,7 +195,7 @@ class MetadataService:
 
         existing_fields = {
             f["field_name"]: f
-            for f in type_def["fields"]
+            for f in type_def["meta_fields"]
             if f["field_name"] not in protected
         }
         new_fields = {f.name: f for f in fields}
@@ -218,12 +220,12 @@ class MetadataService:
             await self.client.command(f"ALTER TABLE {table} DROP COLUMN {col}")
 
         identifier_field_tuples = [
-            (f["field_name"], f["field_type"], f["nullable"])
-            for f in type_def["fields"]
+            (f["field_name"], f["field_type"], f["nullable"], f["table"])
+            for f in type_def["meta_fields"]
             if f["field_name"] in identifier_set
         ]
         updated_fields = identifier_field_tuples + [
-            (f.name, f.type, f.nullable) for f in fields
+            (f.name, f.type, f.nullable, f.table or "") for f in fields
         ]
 
         existing_ref = (
@@ -245,6 +247,7 @@ class MetadataService:
                     slug,
                     "metadata",
                     updated_fields,
+                    [],
                     type_def["identifier"],
                     type_def["ttl"],
                 ]
@@ -255,7 +258,8 @@ class MetadataService:
                 "name",
                 "slug",
                 "type",
-                "fields",
+                "meta_fields",
+                "data_fields",
                 "identifier",
                 "ttl",
             ],
@@ -263,7 +267,7 @@ class MetadataService:
 
     async def get_metadata_type(self, slug):
         result = await self.client.query(
-            "SELECT name, slug, type, fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata' and slug = {slug:String}",
+            "SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata' and slug = {slug:String}",
             parameters={"slug": slug},
         )
         if result.row_count == 0:
@@ -273,7 +277,7 @@ class MetadataService:
     async def validate_metadata_record(self, definition: str, record: dict[str, any]):
         # definition = await self.get_metadata_type(slug)
 
-        for field in definition["fields"]:
+        for field in definition["meta_fields"]:
             field_name = field.get("field_name")
             field_type = field.get("field_type")
             nullable = field.get("nullable")
@@ -291,7 +295,7 @@ class MetadataService:
 
     async def get_metadata_types(self):
         result = await self.client.query(
-            "SELECT name, slug, type, fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata'"
+            "SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata'"
         )
         return list(result.named_results())
 
