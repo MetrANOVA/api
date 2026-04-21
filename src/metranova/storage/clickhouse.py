@@ -74,8 +74,8 @@ class Clickhouse(StorageEngine):
             clusters: QueryResult = await self.client.query("select * from system.clusters")
             if clusters.row_count > 1:
                 logger.info("ClickHouse cluster configuration detected. Using cluster-aware database engines.")
-                self.metadata_engine = "ReplacingMergeTree"
-                self.data_engine = "ReplicatingCoalescingMergeTree"
+                self.metadata_engine = "ReplicatedMergeTree"
+                self.data_engine = "ReplicatedCoalescingMergeTree"
         except Exception as e:
             logger.error(f"Failed to connect to ClickHouse: {e}")
             raise
@@ -225,7 +225,7 @@ class Clickhouse(StorageEngine):
         # definition insert leaves orphaned tables (recoverable) rather than
         # definition rows pointing at non-existent tables (not recoverable).
         try:
-            await self.create_data_table(slug, identifier, ttl, engine_type, data_fields_tuple)
+            await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
         except Exception as e:
             logger.exception(f"Error creating data table for '{slug}': {e}")
             return False, "Error during data table creation"
@@ -237,7 +237,7 @@ class Clickhouse(StorageEngine):
                 for f in meta_fields
                 if f.type.lower() != "reference"
             ]
-            await self.create_meta_table(slug, physical_meta_fields, engine_type, identifier)
+            await self.create_meta_table(slug, physical_meta_fields, identifier)
         except Exception as e:
             logger.exception(f"Error creating meta table for '{slug}': {e}")
             return False, "Error during meta table creation"
@@ -423,7 +423,6 @@ class Clickhouse(StorageEngine):
         slug: str,
         primary_key: list[str],
         ttl: str,
-        engine: str,
         fields: list[tuple[str, str, bool]],
     ):
         field_columns = []
@@ -468,7 +467,6 @@ class Clickhouse(StorageEngine):
         self,
         slug: str,
         fields: list[MetadataField],
-        engine: str,
         primary_key: list[str],
     ):
         field_columns = []
@@ -632,7 +630,7 @@ class Clickhouse(StorageEngine):
                 is_replicated Bool DEFAULT true,
                 updated_at DateTime DEFAULT now()
             )
-            ENGINE = {self._validated_engine_name(self.data_engine)}()
+            ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY ref
         """
         )

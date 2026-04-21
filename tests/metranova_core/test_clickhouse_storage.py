@@ -424,7 +424,6 @@ def test_create_data_table_executes_expected_query(monkeypatch):
             slug="interface_traffic",
             primary_key=["if_name", "timestamp"],
             ttl="365 DAY",
-            engine="MergeTree()",
             fields=[
                 ("if_name", "String", False),
                 ("timestamp", "DateTime64", False),
@@ -464,7 +463,6 @@ def test_create_data_table_uses_on_cluster_when_clustered(monkeypatch):
             slug="interface_traffic",
             primary_key=["if_name"],
             ttl="365 DAY",
-            engine="MergeTree()",
             fields=[("if_name", "String", False)],
         )
     )
@@ -485,7 +483,6 @@ def test_create_meta_table_executes_expected_query(monkeypatch):
                 MetadataField(name="hostname", type="String", nullable=False),
                 MetadataField(name="site", type="String", nullable=True),
             ],
-            engine="MergeTree()",
             primary_key=["hostname"],
         )
     )
@@ -518,7 +515,6 @@ def test_create_meta_table_uses_on_cluster_when_clustered(monkeypatch):
         storage.create_meta_table(
             slug="device_inventory",
             fields=[MetadataField(name="hostname", type="String", nullable=False)],
-            engine="MergeTree()",
             primary_key=["hostname"],
         )
     )
@@ -570,7 +566,6 @@ def test_create_data_table_rejects_malicious_primary_key_identifier(monkeypatch)
                 slug="interface_traffic",
                 primary_key=["if_name`, now()); DROP TABLE metranova.definition;--"],
                 ttl="365 DAY",
-                engine="MergeTree()",
                 fields=[("if_name", "String", False)],
             )
         )
@@ -589,7 +584,6 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
                 slug="device_inventory",
                 fields=[
                     MetadataField(name="hostname", type="String/*bad*/", nullable=False)],
-                engine="MergeTree()",
                 primary_key=["hostname"],
             )
         )
