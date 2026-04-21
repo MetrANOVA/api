@@ -47,6 +47,7 @@ class Clickhouse(StorageEngine):
         instance = cls()
 
         await instance.connect()
+        await instance.create_database()
         return instance
 
     async def connect(self):
@@ -61,7 +62,6 @@ class Clickhouse(StorageEngine):
                 port=self.port,
                 username=self.username,
                 password=self.password,
-                database=self.database,
                 secure=secure,
                 verify=verify,
             )
@@ -276,6 +276,12 @@ class Clickhouse(StorageEngine):
     async def find_all_resource_types(self):
         if not await self.is_connected():
             return None
+        
+        try:
+            await self._ensure_definition_table()
+        except Exception as e:
+            logger.exception(e)
+            return False, "couldn't ensure type definition table exists"
 
         try:
             result = await self.client.query(
@@ -317,6 +323,12 @@ class Clickhouse(StorageEngine):
         """Find a resource type by slug. Returns the row if found, None otherwise."""
         if not await self.is_connected():
             return None
+        
+        try:
+            await self._ensure_definition_table()
+        except Exception as e:
+            logger.exception(e)
+            return False, "couldn't ensure type definition table exists"
 
         try:
             result = await self.client.query(
@@ -381,6 +393,12 @@ class Clickhouse(StorageEngine):
     async def find_resource_type_schema_by_slug(self, slug: str):
         if not await self.is_connected():
             return None
+
+        try:
+            await self._ensure_definition_table()
+        except Exception as e:
+            logger.exception(e)
+            return False, "couldn't ensure type definition table exists"
 
         definition = await self.find_resource_type_by_slug(slug)
         if definition is None:
@@ -519,6 +537,12 @@ class Clickhouse(StorageEngine):
     ) -> tuple[bool, str]:
         if not await self.is_connected():
             return False, "Couldn't connect to Clickhouse"
+
+        try:
+            await self._ensure_definition_table()
+        except Exception as e:
+            logger.exception(e)
+            return False, "couldn't ensure type definition table exists"
 
         current = await self.find_resource_type_by_slug(slug)
         if current is None:
