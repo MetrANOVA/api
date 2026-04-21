@@ -164,8 +164,9 @@ class MetadataService:
             raise Exception(f"Error creating metadata type definition '{slug}': {e}")
 
     async def delete_metadata_type(self, slug: str):
+        meta_table = f"meta_{slug}"
         await self.client.command(
-            f"DROP TABLE IF EXISTS {self.storage._qualified_table_name('meta_'+slug)}"
+            f"DROP TABLE IF EXISTS {self.storage._qualified_table_name(meta_table)}"
         )
         await self.client.command(
             "DELETE FROM definition WHERE slug = %s AND type = 'metadata'",
