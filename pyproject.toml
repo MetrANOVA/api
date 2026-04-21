@@ -1,51 +1,38 @@
 [project]
-name = "metranova"
+name = "admin_api"
 version = "0.1.0"
-description = "Shared core package for MetrANOVA services"
+description = "Admin API package"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "admin_api",
-    "pipeline",
-    "clickhouse-connect>=0.15.0",
-    "fastapi[standard]>=0.128.0",
-    "httpx>=0.28.1",
-    "pydantic-settings>=2.13.1",
+	"metranova",
+	"fastapi (>=0.120.0,<0.128.1)",
+    "uvicorn[standard] (>=0.34.0,<0.35.0)",
+    "python-json-logger>=3.3.0",
 ]
 
 [dependency-groups]
 dev = [
-	"black>=26.3.1",
 	"pytest>=8.4.0",
 ]
 
+[project.scripts]
+admin_api = "admin_api:main"
+
 [tool.uv.sources]
-admin-api = { workspace = true }
-pipeline = { workspace = true }
+metranova = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "packages/*",
+	".",
+	"packages/metranova",
+	"packages/pipeline",
 ]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/admin_api"]
 
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/metranova"]
-
-[tool.pytest.ini_options]
-testpaths = [
-	"tests/metranova_core",
-	"packages/admin_api/tests",
-	"packages/pipeline/tests",
-]
-
-[tool.black]
-line-length = 88
-target-version = ["py314"]
-include = "\\.pyi?$"
-
-[tool.fastapi]
-entrypoint = "admin_api.app:app"
