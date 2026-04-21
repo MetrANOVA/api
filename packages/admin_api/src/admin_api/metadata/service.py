@@ -78,7 +78,7 @@ def compute_record_hash(record: dict) -> str:
 class MetadataService:
     """Service class for handling metadata operations."""
 
-    def __init__(self, storage: Clickhouse):
+    def __init__(self, storage: "Clickhouse"):
         self.storage = storage
         self.client = storage.client
 

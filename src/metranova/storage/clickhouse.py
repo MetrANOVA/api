@@ -206,8 +206,8 @@ class Clickhouse(StorageEngine):
         meta_field_names = {f.name for f in normalized_meta}
         missing = [key for key in identifier if key not in meta_field_names]
         if missing:
-            logger.error(f"Identifier fields missing from data fields: {missing}")
-            return False, f"identifier fields not found in data fields: {missing}"
+            logger.error(f"Identifier fields missing from meta fields: {missing}")
+            return False, f"identifier fields not found in meta fields: {missing}"
 
         data_fields_tuple = [(f.field_name, f.field_type, f.nullable) for f in data_fields]
         # Store normalized type but preserve original table reference in the definition.
