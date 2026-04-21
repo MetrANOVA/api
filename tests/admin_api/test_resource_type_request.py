@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from admin_api.models.resource_type import CreateResourceTypeRequest
+from admin_api.resource_type.model import CreateResourceTypeRequest
 
 
 def build_valid_payload():
@@ -60,7 +60,7 @@ def test_create_resource_type_request_rejects_duplicate_field_names():
     ],
 )
 def test_resource_field_request_preserves_field_type_as_provided(raw_type):
-    from admin_api.models.resource_type import ResourceFieldRequest
+    from admin_api.resource_type.model import ResourceFieldRequest
 
     field = ResourceFieldRequest(field_name="col", field_type=raw_type)
     assert field.field_type == raw_type

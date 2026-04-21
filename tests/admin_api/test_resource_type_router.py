@@ -3,12 +3,12 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-from admin_api.routers.resource_type import (
+from admin_api.resource_type.router import (
     get_resource_type_by_slug,
     get_resource_type_schema_by_slug,
     update_resource_type_by_slug,
 )
-from admin_api.models.resource_type import UpdateResourceTypeRequest
+from admin_api.resource_type.model import UpdateResourceTypeRequest
 
 
 class DummyStorage:

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from metranova.storage.clickhouse import Clickhouse
 from metranova.storage.base import CollectionField
 from admin_api.metadata.service import MetadataField
-from ..models.resource_type import CreateResourceTypeRequest, UpdateResourceTypeRequest
+from .model import CreateResourceTypeRequest, UpdateResourceTypeRequest
 from ..context import get_clickhouse
 
 logger = logging.getLogger(__name__)
