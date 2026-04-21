@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import admin_api.logs as logs
 from .settings import get_settings
 
-from admin_api.routers.resource_type import (
+from admin_api.resource_type.router import (
     router as resource_type_router,
 )
 from admin_api.metadata.router import router as metadata_router
