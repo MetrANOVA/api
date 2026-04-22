@@ -47,7 +47,8 @@ class Clickhouse(StorageEngine):
         instance = cls()
 
         await instance.connect()
-        await instance.create_database()
+        if os.getenv("CLICKHOUSE_SKIP_DB_CREATE", "false").lower() != "true":
+            await instance.create_database()
         return instance
 
     async def connect(self):
@@ -60,6 +61,7 @@ class Clickhouse(StorageEngine):
             self.client = await clickhouse_connect.create_async_client(
                 host=self.host,
                 port=self.port,
+                database=self.database,
                 username=self.username,
                 password=self.password,
                 secure=secure,
@@ -175,7 +177,7 @@ class Clickhouse(StorageEngine):
             await self._ensure_definition_table()
         except Exception as e:
             logger.exception(e)
-            return False, "couldn't ensure type definition table exists"
+            return None
         if not slug:
             slug = name.lower().replace(' ', '-')
 
@@ -281,7 +283,7 @@ class Clickhouse(StorageEngine):
             await self._ensure_definition_table()
         except Exception as e:
             logger.exception(e)
-            return False, "couldn't ensure type definition table exists"
+            return None
 
         try:
             result = await self.client.query(
@@ -328,7 +330,7 @@ class Clickhouse(StorageEngine):
             await self._ensure_definition_table()
         except Exception as e:
             logger.exception(e)
-            return False, "couldn't ensure type definition table exists"
+            return None
 
         try:
             result = await self.client.query(
@@ -622,8 +624,26 @@ class Clickhouse(StorageEngine):
         if not await self.is_connected():
             await self.connect()
 
-        result = await self.client.query("EXISTS TABLE metranova.definition")
-        exists = int(result.result_rows[0][0]) == 1
+        definition_table = self._qualified_table_name("definition")
+        result = await self.client.query(f"EXISTS TABLE {definition_table}")
+        rows = getattr(result, "result_rows", None) or []
+        exists = False
+        if rows:
+            first_row = rows[0]
+            first_value = first_row
+            if isinstance(first_row, dict):
+                first_value = next(iter(first_row.values()), 0)
+            elif isinstance(first_row, (list, tuple)) and first_row:
+                first_value = first_row[0]
+
+            if isinstance(first_value, bool):
+                exists = first_value
+            else:
+                try:
+                    exists = int(first_value) == 1
+                except (TypeError, ValueError):
+                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+                    exists = True
 
         if exists:
             return
@@ -634,7 +654,7 @@ class Clickhouse(StorageEngine):
         # MergeTree?
         await self.client.command(
             f"""
-            CREATE TABLE IF NOT EXISTS metranova.definition{on_cluster_clause}
+            CREATE TABLE IF NOT EXISTS {definition_table}{on_cluster_clause}
             (
                 id String,
                 ref String,

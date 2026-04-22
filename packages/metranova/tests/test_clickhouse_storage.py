@@ -389,7 +389,7 @@ def test_ensure_definition_table_creates_when_missing(monkeypatch):
 
     assert len(storage.client.command_calls) == 1
     assert (
-        "CREATE TABLE IF NOT EXISTS metranova.definition"
+        "CREATE TABLE IF NOT EXISTS `metranova`.`definition`"
         in storage.client.command_calls[0]
     )
 
@@ -658,7 +658,7 @@ def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
     assert result["id"] == "def_interface-traffic"
     assert result["ref"] == "def_interface-traffic__v1"
     assert result["name"] == "Interface Traffic"
-    query, parameters = storage.client.query_calls[0]
+    query, parameters = storage.client.query_calls[-1]
     assert "WHERE slug = %s" in query
     assert parameters == ["interface-traffic"]
 
