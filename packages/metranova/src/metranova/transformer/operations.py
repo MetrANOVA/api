@@ -56,7 +56,7 @@ operations = {
         config=[
             OperationConfigField(name="source", type=str, required=True),
             OperationConfigField(name="regex", type=str, required=True),
-            OperationConfigField(name="greoup", type=int, required=True),
+            OperationConfigField(name="group", type=int, required=True),
             OperationConfigField(name="cast", type=str, required=False),
         ],
     ),

@@ -92,7 +92,7 @@ async def update_transformer(
         return data
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=500, detail="Error updating transformer")
 
 
@@ -130,7 +130,7 @@ async def create_transformer_column(
         return data
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=500, detail="Error creating transformer column")
 
 
@@ -184,7 +184,7 @@ async def get_transformer_column_by_id(
         return column
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=500, detail="Error fetching transformer column")
 
 
@@ -230,7 +230,7 @@ async def update_transformer_column(
         return column
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=500, detail="Error updating transformer column")
 
 
@@ -261,5 +261,5 @@ async def delete_transformer_column(
         return result
     except HTTPException:
         raise
-    except:
+    except Exception:
         raise HTTPException(status_code=500, detail="Error deleting transformer column")

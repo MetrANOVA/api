@@ -837,7 +837,7 @@ class Clickhouse(StorageEngine):
                 name String,              
                 slug String,              
                 description String,       
-                match_field String
+                match_field String,
                 updated_at DateTime DEFAULT now()
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
@@ -871,12 +871,6 @@ class Clickhouse(StorageEngine):
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
 
-        if exists:
-            await self.client.command(
-                f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS id String FIRST"
-            )
-            return
-
         on_cluster_clause = await self._get_on_cluster_clause()
 
         await self.client.command(
@@ -892,7 +886,7 @@ class Clickhouse(StorageEngine):
                 operation String,
                 config String, -- JSON
                 default_value Nullable(String),
-                order UInt16 DEFAULT 0     
+                `order` UInt16 DEFAULT 0     
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
