@@ -53,4 +53,4 @@ async def index():
 # Add routers here
 app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])
 app.include_router(metadata_router, prefix="/metadata")
-app.include_router(transformer_router, prefix="/transformer")
+app.include_router(transformer_router, prefix="/transformers")

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, get_origin, get_args
 
 
 class OperationConfigField:
@@ -101,3 +101,72 @@ operations = {
         ],
     ),
 }
+
+
+def _check_type(value, expected_type):
+    """Check if a value matches the expected type, supporting generic types."""
+    # Handle Literal types
+    origin = get_origin(expected_type)
+    if origin is Literal:
+        allowed_values = get_args(expected_type)
+        return value in allowed_values
+
+    # Handle list[T]
+    if origin is list:
+        if not isinstance(value, list):
+            return False
+        args = get_args(expected_type)
+        if args:
+            element_type = args[0]
+            return all(isinstance(item, element_type) for item in value)
+        return True
+
+    # Handle dict[K, V]
+    if origin is dict:
+        if not isinstance(value, dict):
+            return False
+        args = get_args(expected_type)
+        if args and len(args) >= 2:
+            key_type, value_type = args[0], args[1]
+            return all(
+                isinstance(k, key_type) and isinstance(v, value_type)
+                for k, v in value.items()
+            )
+        return True
+
+    # Handle primitive types
+    return isinstance(value, expected_type)
+
+
+def validate_config(operation_name: str, config: dict) -> tuple[bool, str | None]:
+    """
+    Validate config against an operation's schema.
+
+    Returns:
+        tuple[bool, str | None]: (is_valid, error_message)
+    """
+    if operation_name not in operations:
+        return False, f"Unknown operation: {operation_name}"
+
+    operation = operations[operation_name]
+    errors = []
+
+    # Check required fields are present
+    for field in operation.config:
+        if field.required and field.name not in config:
+            errors.append(f"Required field '{field.name}' is missing")
+
+    # Check field types
+    for field in operation.config:
+        if field.name in config:
+            value = config[field.name]
+            if not _check_type(value, field.type):
+                expected_type_name = str(field.type).replace("typing.", "")
+                errors.append(
+                    f"Field '{field.name}' has invalid type. Expected {expected_type_name}, got {type(value).__name__}"
+                )
+
+    if errors:
+        return False, "; ".join(errors)
+
+    return True, None

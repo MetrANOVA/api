@@ -821,7 +821,6 @@ class Clickhouse(StorageEngine):
                 except (TypeError, ValueError):
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
-
         if exists:
             return
 
@@ -873,6 +872,9 @@ class Clickhouse(StorageEngine):
                     exists = True
 
         if exists:
+            await self.client.command(
+                f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS id String FIRST"
+            )
             return
 
         on_cluster_clause = await self._get_on_cluster_clause()
@@ -881,6 +883,7 @@ class Clickhouse(StorageEngine):
             f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
             (
+                id String,
                 transformer_ref String,   -- Links strictly to 'trans_int_std__v1'
                 target_column String,     
                 match_value Nullable(String),
@@ -892,6 +895,6 @@ class Clickhouse(StorageEngine):
                 order UInt16 DEFAULT 0     
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
-            ORDER BY (transformer_ref, target_column);
+            ORDER BY (transformer_ref, target_column, id);
         """
         )
