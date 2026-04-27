@@ -1,11 +1,10 @@
 import clickhouse_connect
 import inspect
-import json
 import logging
 import os
 import re
 
-from .base import StorageEngine, CollectionField, CollectionType, ConsumerType
+from .base import StorageEngine, CollectionField, CollectionType
 from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
@@ -46,12 +45,14 @@ class Clickhouse(StorageEngine):
     async def create(cls) -> "Clickhouse":
         instance = cls()
 
-        await instance.connect()
+        await instance.connect(database="default")
         if os.getenv("CLICKHOUSE_SKIP_DB_CREATE", "false").lower() != "true":
             await instance.create_database()
         return instance
 
-    async def connect(self):
+    async def connect(self, database: str | None = None):
+        if database is None:
+            database = self.database
         # Check to see if we need to care about TLS verification
         secure = os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true"
         verify_env = os.getenv("CLICKHOUSE_VERIFY")
@@ -61,7 +62,7 @@ class Clickhouse(StorageEngine):
             self.client = await clickhouse_connect.create_async_client(
                 host=self.host,
                 port=self.port,
-                database=self.database,
+                database=database,
                 username=self.username,
                 password=self.password,
                 secure=secure,
@@ -70,7 +71,7 @@ class Clickhouse(StorageEngine):
             # Test connection
             await self.client.ping()
             logger.info(
-                f"Connected to ClickHouse at {self.host}:{self.port}, database: {self.database}"
+                f"Connected to ClickHouse at {self.host}:{self.port}, database: {database}"
             )
 
             clusters: QueryResult = await self.client.query(
@@ -183,7 +184,7 @@ class Clickhouse(StorageEngine):
             await self._ensure_definition_table()
         except Exception as e:
             logger.exception(e)
-            return None
+            return False, "Error ensuring definition table"
         if not slug:
             slug = name.lower().replace(" ", "-")
 
