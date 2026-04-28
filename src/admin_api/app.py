@@ -64,12 +64,6 @@ async def index():
     return {"name": "MetrANOVA Admin API", "version": "0.0.1"}
 
 
-@app.get("/api")
-@app.get("/api/")
-async def api_index():
-    return await index()
-
-
 @app.get("/health")
 async def health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
     try:
@@ -77,11 +71,6 @@ async def health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
     except Exception:
         connected = False
     return {"healthy": connected}
-
-
-@app.get("/api/health")
-async def api_health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
-    return await health(clickhouse)
 
 
 # Add routers here
