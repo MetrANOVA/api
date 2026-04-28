@@ -50,6 +50,7 @@ def configure(format: str = "json"):
 
 
 def set_level(module: str, level: str):
+    level = level.upper()
     if level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
         raise ValueError(f"Invalid log level: {level}")
 
