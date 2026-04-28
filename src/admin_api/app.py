@@ -2,7 +2,8 @@ import os
 import logging
 import sys
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from typing import Annotated
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import admin_api.logs as logs
@@ -12,7 +13,7 @@ from admin_api.resource_type.router import (
     router as resource_type_router,
 )
 from admin_api.metadata.router import router as metadata_router
-from .context import lifespan
+from .context import lifespan, get_clickhouse
 
 description = """
 # MetrANOVA Admin API
@@ -47,6 +48,15 @@ app.add_middleware(
 @app.get("/")
 async def index():
     return {"name": "MetrANOVA Admin API", "version": "0.0.1"}
+
+
+@app.get("/health")
+async def health(clickhouse: Annotated[any, Depends(get_clickhouse)]):
+    try:
+        connected = await clickhouse.client.ping()
+    except Exception:
+        connected = False
+    return {"healthy": connected}
 
 
 # Add routers here
