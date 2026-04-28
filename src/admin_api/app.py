@@ -1,7 +1,7 @@
 import os
 import logging
+import re
 import sys
-from contextlib import asynccontextmanager
 from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,9 +45,29 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def normalize_request_path(request: Request, call_next):
+    original_path = request.scope.get("path", "")
+    normalized_path = re.sub(r"/{2,}", "/", original_path)
+    if normalized_path == "":
+        normalized_path = "/"
+
+    if normalized_path != original_path:
+        request.scope["path"] = normalized_path
+        request.scope["raw_path"] = normalized_path.encode("utf-8")
+
+    return await call_next(request)
+
+
 @app.get("/")
 async def index():
     return {"name": "MetrANOVA Admin API", "version": "0.0.1"}
+
+
+@app.get("/api")
+@app.get("/api/")
+async def api_index():
+    return await index()
 
 
 @app.get("/health")
@@ -57,6 +77,11 @@ async def health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
     except Exception:
         connected = False
     return {"healthy": connected}
+
+
+@app.get("/api/health")
+async def api_health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
+    return await health(clickhouse)
 
 
 # Add routers here
