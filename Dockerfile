@@ -7,6 +7,10 @@ ENV PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
 
+RUN apt-get update \
+	&& apt-get install --no-install-recommends -y build-essential \
+	&& rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./
