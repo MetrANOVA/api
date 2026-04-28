@@ -36,9 +36,20 @@ class DummyAsyncClient:
         self.insert_calls.append(kwargs)
 
     _DEFINITION_COLUMNS = [
-        "id", "ref", "name", "slug", "type", "consumer_type",
-        "consumer_config", "fields", "primary_key", "partition_by",
-        "ttl", "engine_type", "is_replicated", "updated_at",
+        "id",
+        "ref",
+        "name",
+        "slug",
+        "type",
+        "consumer_type",
+        "consumer_config",
+        "fields",
+        "primary_key",
+        "partition_by",
+        "ttl",
+        "engine_type",
+        "is_replicated",
+        "updated_at",
     ]
 
     async def query(self, query, parameters=None):
@@ -92,10 +103,11 @@ def test_close_closes_client(monkeypatch):
 
 def test_create_returns_initialized_instance(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
-    state = {"connect": False}
+    state = {"connect": False, "database": None}
 
-    async def fake_connect(self):
+    async def fake_connect(self, database: str | None = None):
         state["connect"] = True
+        state["database"] = database
 
     monkeypatch.setattr(Clickhouse, "connect", fake_connect)
 
@@ -103,6 +115,7 @@ def test_create_returns_initialized_instance(monkeypatch):
 
     assert isinstance(storage, Clickhouse)
     assert state["connect"] is True
+    assert state["database"] == "default"
 
 
 def test_connect_creates_async_client_and_pings(monkeypatch):
@@ -127,6 +140,28 @@ def test_connect_creates_async_client_and_pings(monkeypatch):
     assert created["host"] == storage.host
     assert created["database"] == storage.database
     assert created["secure"] is True
+
+
+def test_connect_uses_explicit_database_when_provided(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    monkeypatch.setenv("CLICKHOUSE_DB", "metranova")
+    created = {}
+    async_client = DummyAsyncClient()
+
+    async def fake_create_async_client(**kwargs):
+        created.update(kwargs)
+        return async_client
+
+    monkeypatch.setattr(
+        "metranova.storage.clickhouse.clickhouse_connect.create_async_client",
+        fake_create_async_client,
+    )
+
+    storage = Clickhouse()
+    asyncio.run(storage.connect(database="default"))
+
+    assert storage.client is async_client
+    assert created["database"] == "default"
 
 
 def test_is_connected_true(monkeypatch):
@@ -157,10 +192,7 @@ def test_create_database_standalone_query(monkeypatch):
     asyncio.run(storage.create_database())
 
     assert len(storage.client.command_calls) == 1
-    assert (
-        storage.client.command_calls[0]
-        == "CREATE DATABASE IF NOT EXISTS metranova"
-    )
+    assert storage.client.command_calls[0] == "CREATE DATABASE IF NOT EXISTS metranova"
 
 
 def test_create_database_clustered_query(monkeypatch):
@@ -265,11 +297,17 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
             name="Interface Alias",
             slug="interface-alias",
             data_fields=[
-                CollectionField(field_name="if_name", field_type="string", nullable=True),
-                CollectionField(field_name="aliases", field_type="array(string)", nullable=True),
+                CollectionField(
+                    field_name="if_name", field_type="string", nullable=True
+                ),
+                CollectionField(
+                    field_name="aliases", field_type="array(string)", nullable=True
+                ),
             ],
             meta_fields=[
-                MetadataField(name="if_name", type="reference", nullable=True, table="interfaces"),
+                MetadataField(
+                    name="if_name", type="reference", nullable=True, table="interfaces"
+                ),
                 MetadataField(name="site", type="nullable(string)", nullable=True),
             ],
             identifier=["if_name"],
@@ -389,7 +427,7 @@ def test_ensure_definition_table_creates_when_missing(monkeypatch):
 
     assert len(storage.client.command_calls) == 1
     assert (
-        "CREATE TABLE IF NOT EXISTS metranova.definition"
+        "CREATE TABLE IF NOT EXISTS `metranova`.`definition`"
         in storage.client.command_calls[0]
     )
 
@@ -584,7 +622,8 @@ def test_create_meta_table_rejects_malicious_field_type(monkeypatch):
             storage.create_meta_table(
                 slug="device_inventory",
                 fields=[
-                    MetadataField(name="hostname", type="String/*bad*/", nullable=False)],
+                    MetadataField(name="hostname", type="String/*bad*/", nullable=False)
+                ],
                 primary_key=["hostname"],
             )
         )
@@ -658,7 +697,7 @@ def test_find_resource_type_by_slug_returns_row_when_found(monkeypatch):
     assert result["id"] == "def_interface-traffic"
     assert result["ref"] == "def_interface-traffic__v1"
     assert result["name"] == "Interface Traffic"
-    query, parameters = storage.client.query_calls[0]
+    query, parameters = storage.client.query_calls[-1]
     assert "WHERE slug = %s" in query
     assert parameters == ["interface-traffic"]
 
@@ -697,9 +736,20 @@ def test_find_resource_type_schema_by_slug_returns_schema_dict_for_data(monkeypa
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             _COLS = [
-                "id", "ref", "name", "slug", "type", "consumer_type",
-                "consumer_config", "fields", "primary_key", "partition_by",
-                "ttl", "engine_type", "is_replicated", "updated_at",
+                "id",
+                "ref",
+                "name",
+                "slug",
+                "type",
+                "consumer_type",
+                "consumer_config",
+                "fields",
+                "primary_key",
+                "partition_by",
+                "ttl",
+                "engine_type",
+                "is_replicated",
+                "updated_at",
             ]
             rows = [
                 (
