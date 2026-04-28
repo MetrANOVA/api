@@ -2,8 +2,8 @@ import os
 import logging
 import sys
 from contextlib import asynccontextmanager
-from typing import Annotated
-from fastapi import Depends, FastAPI
+from typing import Annotated, Any
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import admin_api.logs as logs
@@ -51,7 +51,7 @@ async def index():
 
 
 @app.get("/health")
-async def health(clickhouse: Annotated[any, Depends(get_clickhouse)]):
+async def health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
     try:
         connected = await clickhouse.client.ping()
     except Exception:
