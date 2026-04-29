@@ -4,8 +4,6 @@ version = "0.1.0"
 description = "Shared core package for MetrANOVA services"
 requires-python = ">=3.14"
 dependencies = [
-    "admin_api",
-    "pipeline",
     "clickhouse-connect>=0.15.0",
     "fastapi[standard]>=0.128.0",
     "httpx>=0.28.1",
@@ -17,12 +15,6 @@ dev = [
 	"black>=26.3.1",
 	"pytest>=8.4.0",
 ]
-
-[tool.uv.sources]
-admin_api = { workspace = true }
-pipeline = { workspace = true }
-
-
 
 [build-system]
 requires = ["hatchling>=1.25.0"]
