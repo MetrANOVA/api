@@ -41,26 +41,25 @@ CREATE TABLE IF NOT EXISTS metranova.transformer (
     name String,              
     slug String,              
     description String,       
-    
+    match_field String,
     updated_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
 ORDER BY (ref);
 
 CREATE TABLE IF NOT EXISTS metranova.transformer_column (
+    id String,
     transformer_ref String,   -- Links strictly to 'trans_int_std__v1'
     target_column String,     
     
-    match_field String,       
-    match_value String,       
-    
-    extract_field String,     
-    
-    rules Array(Tuple(
-        action String, 
-        arguments Map(String, String) 
-    ))
+    match_value Nullable(String),
+    vendor_match_field Nullable(String),
+    vendor_match_value Nullable(String),
+    operation String,
+    config String, -- JSON
+    default_value Nullable(String),
+    order UInt16 DEFAULT 0     
 ) ENGINE = MergeTree()
-ORDER BY (transformer_ref, target_column, match_field, match_value);
+ORDER BY (transformer_ref, target_column, id);
 
 
 
