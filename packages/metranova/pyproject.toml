@@ -1,5 +1,5 @@
 [project]
-name = "metranova"
+name = "metranova-core"
 version = "0.1.0"
 description = "Shared core package for MetrANOVA services"
 requires-python = ">=3.14"
@@ -25,7 +25,7 @@ packages = ["src/metranova"]
 
 [tool.pytest.ini_options]
 testpaths = [
-	"tests/metranova_core",
+	"tests/metranova",
 	"packages/admin_api/tests",
 	"packages/pipeline/tests",
 ]
@@ -34,6 +34,3 @@ testpaths = [
 line-length = 88
 target-version = ["py314"]
 include = "\\.pyi?$"
-
-[tool.fastapi]
-entrypoint = "admin_api.app:app"

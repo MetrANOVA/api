@@ -5,7 +5,7 @@ description = "Admin API package"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-	"metranova",
+	"metranova-core",
 	"fastapi (>=0.120.0,<0.128.1)",
     "uvicorn[standard] (>=0.34.0,<0.35.0)",
     "python-json-logger>=3.3.0",
@@ -20,14 +20,13 @@ dev = [
 admin_api = "admin_api:main"
 
 [tool.uv.sources]
-metranova = { workspace = true }
+metranova-core = { workspace = true }
 
 [tool.uv.workspace]
 members = [
 	".",
 	"packages/metranova",
 ]
-
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/admin_api"]
