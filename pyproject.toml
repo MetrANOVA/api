@@ -26,7 +26,6 @@ metranova = { workspace = true }
 members = [
 	".",
 	"packages/metranova",
-	"packages/pipeline",
 ]
 
 
