@@ -10,11 +10,9 @@ This repo uses submodules. When cloining please remember to use the recurse-subm
 
 This repository uses a `uv` workspace with three packages:
 
-- `metranova_core` (workspace root `.`): shared code in `src/metranova`
-- `admin_api` (`src/admin_api`): admin service package
-- `pipeline` (`src/pipeline`): pipeline service package. This references [MetrANOVA/pipeline](https://github.com/MetrANOVA/pipeline).
-
-Both `admin_api` and `pipeline` depend on the workspace `metranova_core` package and call shared logic from `metranova`.
+- `admin_api` (workspace root `.`): admin service package
+- `metranova` (`packages/metranova`): shared code for `admin_api` and `pipeline`
+- `pipeline` (`packages/pipeline`): pipeline service package. Git submodule [MetrANOVA/pipeline](https://github.com/MetrANOVA/pipeline).
 
 ## Running services
 
