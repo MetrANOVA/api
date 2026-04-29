@@ -20,7 +20,7 @@ dev = [
 admin_api = "admin_api:main"
 
 [tool.uv.sources]
-metranova = { workspace = true }
+metranova-core = { workspace = true }
 
 [tool.uv.workspace]
 members = [

@@ -5,7 +5,7 @@ requires-python = ">=3.14"
 [manifest]
 members = [
     "admin-api",
-    "metranova",
+    "metranova-core",
 ]
 
 [[package]]
@@ -14,7 +14,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "metranova" },
+    { name = "metranova-core" },
     { name = "python-json-logger" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -27,7 +27,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.120.0,<0.128.1" },
-    { name = "metranova", editable = "packages/metranova" },
+    { name = "metranova-core", editable = "packages/metranova" },
     { name = "python-json-logger", specifier = ">=3.3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0,<0.35.0" },
 ]
@@ -426,7 +426,7 @@ wheels = [
 ]
 
 [[package]]
-name = "metranova"
+name = "metranova-core"
 version = "0.1.0"
 source = { editable = "packages/metranova" }
 dependencies = [
