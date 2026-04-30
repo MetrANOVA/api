@@ -171,7 +171,7 @@ class MetadataService:
             f"DROP TABLE IF EXISTS {self.storage._qualified_table_name(meta_table)}"
         )
         await self.client.command(
-            "DELETE FROM definition WHERE slug = %s AND type = 'metadata'",
+            f"DELETE FROM {self.storage._qualified_table_name('definition')} WHERE slug = %s AND type = 'metadata'",
             parameters=[slug],
         )
 
@@ -230,7 +230,8 @@ class MetadataService:
 
         existing_ref = (
             await self.client.query(
-                "SELECT ref FROM definition WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
+                f"SELECT ref FROM {self.storage._qualified_table_name('definition')}"
+                + " WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
                 parameters={"slug": slug},
             )
         ).first_row[0]
@@ -267,7 +268,8 @@ class MetadataService:
 
     async def get_metadata_type(self, slug):
         result = await self.client.query(
-            "SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata' and slug = {slug:String}",
+            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')}"
+            + " WHERE type = 'metadata' and slug = {slug:String}",
             parameters={"slug": slug},
         )
         if result.row_count == 0:
@@ -295,7 +297,7 @@ class MetadataService:
 
     async def get_metadata_types(self):
         result = await self.client.query(
-            "SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM definition WHERE type = 'metadata'"
+            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE type = 'metadata'"
         )
         return list(result.named_results())
 
