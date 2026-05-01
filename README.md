@@ -6,6 +6,11 @@ This repo uses submodules. When cloining please remember to use the recurse-subm
 
 - `git clone --recurse-submodules https://github.com/MetrANOVA/api.git`
 
+When using metranova-core it may be required to periodically update
+```
+uv lock --upgrade-package metranova-core
+```
+
 ## Workspace structure
 
 This repository uses a `uv` workspace with three packages:
@@ -111,4 +116,12 @@ To reset the database and re-run init scripts:
 ```bash
 docker compose -f .devcontainer/docker-compose.yml down -v
 docker compose -f .devcontainer/docker-compose.yml up -d
+```
+
+### Making sure stuff works
+
+```
+/opt/kafka/bin/kafka-dump-log.sh \
+--files /var/lib/kafka/data/metranova_snmp-0/00000000000000000000.log \
+--print-data-log
 ```

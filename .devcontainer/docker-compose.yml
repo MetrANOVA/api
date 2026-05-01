@@ -53,6 +53,24 @@ services:
   # ---------------------------------------------------------------------------
   # Kafka (KRaft mode — no Zookeeper required)
   # ---------------------------------------------------------------------------
+  kafka-init:
+    image: apache/kafka:4.0.2
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic metranova_snmp \
+          --partitions 3 \
+          --replication-factor 1
+        echo "Topics created successfully"
+
   kafka:
     image: apache/kafka:4.0.2
     container_name: kafka
@@ -75,6 +93,7 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     healthcheck:
       test:
         [
@@ -88,6 +107,8 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
+    volumes:
+    - kafka_data:/var/lib/kafka/data
 
   # ---------------------------------------------------------------------------
   # Telegraf
@@ -100,8 +121,8 @@ services:
         condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       snmp-simulator:
         condition: service_started
     volumes:
@@ -154,15 +175,16 @@ services:
         condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
-      PIPELINE_YAML: pipelines/data_flow.yml
+      PIPELINE_YAML: pipelines/data_dynamic.yml
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_DATABASE: metranova
       CLICKHOUSE_USERNAME: default
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: metranova_snmp
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -189,3 +211,5 @@ services:
 volumes:
   clickhouse_data:
   grafana_data:
+  kafka_data:
+
