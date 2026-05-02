@@ -64,12 +64,27 @@ services:
       - /bin/sh
       - -ec
       - |
+        echo "Waiting for Kafka to be ready..."
+        sleep 5
+
+        echo "Pre-creating __consumer_offsets..."
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic __consumer_offsets \
+          --partitions 50 \
+          --replication-factor 1 \
+          --config cleanup.policy=compact
+
+        chown -R appuser:appuser /var/lib/kafka/data
+
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
           --create --if-not-exists \
           --topic metranova_snmp \
           --partitions 3 \
           --replication-factor 1
         echo "Topics created successfully"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
 
   kafka:
     image: apache/kafka:4.0.2
@@ -108,7 +123,7 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-    - kafka_data:/var/lib/kafka/data
+      - kafka_data:/var/lib/kafka/data
 
   # ---------------------------------------------------------------------------
   # Telegraf
@@ -185,6 +200,7 @@ services:
       CLICKHOUSE_USERNAME: default
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: metranova_snmp
+      KAFKA_CONSUMER_GROUP: consumer-group-1
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
