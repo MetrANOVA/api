@@ -1,9 +1,13 @@
 import asyncio
 from types import SimpleNamespace
 
-from metranova import CollectionField, CollectionType, ConsumerType
-from metranova import Clickhouse
-from metranova.storage.base import MetadataField
+from metranova.storage.clickhouse import Clickhouse
+from metranova.storage.base import (
+    MetadataField,
+    CollectionField,
+    CollectionType,
+    ConsumerType,
+)
 
 
 class FakeAsyncClient:
@@ -32,17 +36,35 @@ class FakeAsyncClient:
                 self.definition_rows.append(tuple(normalized))
 
     _DEFINITION_COLUMNS = [
-        "id", "ref", "name", "slug", "meta_fields", "data_fields",
-        "identifier", "ttl", "engine_type", "is_replicated", "updated_at",
+        "id",
+        "ref",
+        "name",
+        "slug",
+        "type",
+        "meta_fields",
+        "data_fields",
+        "identifier",
+        "ttl",
+        "engine_type",
+        "is_replicated",
+        "updated_at",
     ]
 
     async def query(self, query: str, parameters=None):
         normalized_query = " ".join(query.strip().split())
 
-        if normalized_query.startswith("EXISTS TABLE") and ".definition" in normalized_query:
-            return SimpleNamespace(result_rows=[[1 if self.definition_exists else 0]], row_count=1)
+        if (
+            normalized_query.startswith("EXISTS TABLE")
+            and ".definition" in normalized_query
+        ):
+            return SimpleNamespace(
+                result_rows=[[1 if self.definition_exists else 0]], row_count=1
+            )
 
-        if "SELECT * FROM" in normalized_query and ".definition WHERE slug = %s" in normalized_query:
+        if (
+            "SELECT * FROM" in normalized_query
+            and ".definition WHERE slug = %s" in normalized_query
+        ):
             slug = parameters[0]
             candidates = [row for row in self.definition_rows if row[3] == slug]
             row = candidates[-1] if candidates else None
@@ -53,13 +75,14 @@ class FakeAsyncClient:
                 for r in rows:
                     yield dict(zip(cols, r))
 
-            return SimpleNamespace(result_rows=rows, row_count=len(rows), named_results=named_results)
+            return SimpleNamespace(
+                result_rows=rows, row_count=len(rows), named_results=named_results
+            )
 
-        if (
-            ".definition" in normalized_query
-            and "SELECT" in normalized_query
-        ):
-            return SimpleNamespace(result_rows=self.definition_rows, row_count=len(self.definition_rows))
+        if ".definition" in normalized_query and "SELECT" in normalized_query:
+            return SimpleNamespace(
+                result_rows=self.definition_rows, row_count=len(self.definition_rows)
+            )
 
         if normalized_query.startswith("DESCRIBE TABLE"):
             return SimpleNamespace(
@@ -86,6 +109,7 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+
     async def mock_get_ch_types():
         return ["String", "DateTime64", "Float64"]
 
@@ -132,6 +156,7 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+
     async def mock_get_ch_types():
         return ["String", "DateTime64", "Float64"]
 
@@ -172,6 +197,7 @@ def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
     storage.client = FakeAsyncClient()
+
     async def mock_get_ch_types():
         return ["String", "DateTime64", "Float64"]
 

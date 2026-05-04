@@ -7,6 +7,7 @@ from admin_api.app import app
 class FakeStorage:
     def __init__(self):
         self.closed = False
+        self.client = object()
         self.created_payload = None
         self.resource = {
             "id": "def_interface-traffic",
@@ -14,7 +15,10 @@ class FakeStorage:
             "name": "Interface Traffic",
             "slug": "interface-traffic",
             "meta_fields": [("if_name", "String", True, "")],
-            "data_fields": [("if_name", "String", True), ("timestamp", "DateTime64", False)],
+            "data_fields": [
+                ("if_name", "String", True),
+                ("timestamp", "DateTime64", False),
+            ],
             "identifier": ["if_name", "timestamp"],
             "ttl": "365 DAY",
             "engine_type": "MergeTree()",
@@ -44,6 +48,8 @@ class FakeStorage:
             "ttl": ttl,
             "engine_type": engine_type,
         }
+        if slug == "broken-type":
+            return False, "Error updating table schema"
         return True, f"Type {name} has been successfully created"
 
     async def find_all_resource_types(self):
@@ -71,8 +77,9 @@ class FakeStorage:
         self,
         slug: str,
         fields,
-        consumer_config_updates,
-        ext_updates,
+        meta_fields=None,
+        consumer_config_updates=None,
+        ext_updates=None,
     ):
         if slug != self.resource["slug"]:
             return False, f"Resource type with slug '{slug}' not found"
@@ -132,10 +139,17 @@ def test_type_api_crud_flow(api_client):
     update_response = client.put(
         "/type/interface-traffic",
         json={
-            "fields": [
+            "data_fields": [
                 {
                     "field_name": "rx_bps",
                     "field_type": "float64",
+                    "nullable": True,
+                }
+            ],
+            "meta_fields": [
+                {
+                    "field_name": "if_alias",
+                    "field_type": "string",
                     "nullable": True,
                 }
             ],
@@ -189,8 +203,12 @@ def test_type_api_create_returns_500_on_duplicate_slug(api_client, monkeypatch):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
-            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "data_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
+            "meta_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -213,7 +231,7 @@ def test_type_api_returns_404_for_missing_slug_paths(api_client):
 
     update_response = client.put(
         "/type/missing-slug",
-        json={"fields": [], "consumer_config": {}, "ext": {}},
+        json={"data_fields": [], "meta_fields": [], "consumer_config": {}, "ext": {}},
     )
     assert update_response.status_code == 404
     assert "not found" in update_response.json()["detail"]
@@ -226,8 +244,12 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
-            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "data_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
+            "meta_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
             "identifier": ["if_name"],
             "ttl": "invalid ttl",
         },
@@ -245,8 +267,12 @@ def test_type_api_create_ignores_slug_in_request_body(api_client):
         json={
             "name": "Interface Traffic",
             "slug": "Interface Traffic",
-            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
-            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "data_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
+            "meta_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
             "identifier": ["if_name"],
             "ttl": "365 DAY",
         },
@@ -262,8 +288,12 @@ def test_type_api_create_ignores_partition_by_in_request_body(api_client):
         "/type/",
         json={
             "name": "Interface Traffic",
-            "data_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
-            "meta_fields": [{"field_name": "if_name", "field_type": "string", "nullable": True}],
+            "data_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
+            "meta_fields": [
+                {"field_name": "if_name", "field_type": "string", "nullable": True}
+            ],
             "identifier": ["if_name"],
             "partition_by": "toYYYYMM(timestamp; DROP TABLE metranova.definition)",
             "ttl": "365 DAY",
@@ -271,3 +301,157 @@ def test_type_api_create_ignores_partition_by_in_request_body(api_client):
     )
 
     assert response.status_code == 200
+
+
+def test_type_api_batch_create_or_update_returns_summary(api_client):
+    client, _ = api_client
+
+    response = client.post(
+        "/type/batch",
+        json={
+            "definitions": [
+                {
+                    "name": "New Type",
+                    "data_fields": [
+                        {
+                            "field_name": "if_name",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "meta_fields": [
+                        {
+                            "field_name": "if_name",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "identifier": ["if_name"],
+                    "ttl": "365 DAY",
+                },
+                {
+                    "name": "Interface Traffic",
+                    "data_fields": [
+                        {
+                            "field_name": "rx_bps",
+                            "field_type": "float64",
+                            "nullable": True,
+                        }
+                    ],
+                    "meta_fields": [
+                        {
+                            "field_name": "if_name",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "identifier": ["if_name"],
+                    "ttl": "365 DAY",
+                },
+                {
+                    "name": "Broken Type",
+                    "data_fields": [
+                        {
+                            "field_name": "x",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "meta_fields": [
+                        {
+                            "field_name": "x",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "identifier": ["x"],
+                    "ttl": "365 DAY",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["slug"] for item in payload["created"]] == ["new-type"]
+    assert [item["slug"] for item in payload["updated"]] == ["interface-traffic"]
+    assert [item["slug"] for item in payload["failed"]] == ["broken-type"]
+
+
+def test_type_api_batch_meta_only_definition_uses_metadata_service(
+    api_client, monkeypatch
+):
+    client, _ = api_client
+
+    called = {"value": False}
+
+    async def fake_create_metadata_type(self, name, identifier, fields):
+        called["value"] = True
+        assert name == "POP"
+        assert identifier == ["pop_id"]
+        assert len(fields) == 1
+        assert fields[0].name == "pop_id"
+
+    monkeypatch.setattr(
+        "admin_api.resource_type.router.MetadataService.create_metadata_type",
+        fake_create_metadata_type,
+    )
+
+    response = client.post(
+        "/type/batch",
+        json={
+            "definitions": [
+                {
+                    "name": "POP",
+                    "meta_fields": [
+                        {
+                            "field_name": "pop_id",
+                            "field_type": "string",
+                            "nullable": False,
+                        }
+                    ],
+                    "identifier": ["pop_id"],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert called["value"] is True
+    payload = response.json()
+    assert [item["slug"] for item in payload["created"]] == ["pop"]
+    assert payload["updated"] == []
+    assert payload["failed"] == []
+
+
+def test_type_api_batch_requires_ttl_when_data_fields_provided(api_client):
+    client, _ = api_client
+
+    response = client.post(
+        "/type/batch",
+        json={
+            "definitions": [
+                {
+                    "name": "Data Type Without TTL",
+                    "data_fields": [
+                        {
+                            "field_name": "value",
+                            "field_type": "string",
+                            "nullable": True,
+                        }
+                    ],
+                    "meta_fields": [
+                        {
+                            "field_name": "key",
+                            "field_type": "string",
+                            "nullable": False,
+                        }
+                    ],
+                    "identifier": ["key"],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert "ttl is required" in str(response.json()).lower()
