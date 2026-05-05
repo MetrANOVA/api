@@ -75,7 +75,7 @@ async def create_resource_type(
     data_fields = _to_collection_fields(request.data_fields)
     meta_fields = _to_metadata_fields(request.meta_fields)
 
-    slug = request.name.lower().replace(" ", "-")
+    slug = request.name.lower().replace(" ", "_")
     try:
         success, msg = await se.create_resource_type(
             name=request.name,
@@ -109,7 +109,7 @@ async def batch_create_or_update_resource_types(
     failed = []
 
     for definition in request.definitions:
-        slug = definition.name.lower().replace(" ", "-")
+        slug = definition.name.lower().replace(" ", "_")
         data_fields = _to_collection_fields(definition.data_fields)
         meta_fields = _to_metadata_fields(definition.meta_fields)
 

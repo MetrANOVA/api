@@ -185,7 +185,7 @@ class Clickhouse(StorageEngine):
             logger.exception(e)
             return False, "Error ensuring definition table"
         if not slug:
-            slug = name.lower().replace(" ", "-")
+            slug = name.lower().replace(" ", "_")
 
         existing = await self.find_resource_type_by_slug(slug)
         if existing:
@@ -412,10 +412,9 @@ class Clickhouse(StorageEngine):
         for field_name, field_type, nullable in fields:
             safe_field_name = self._quoted_identifier(field_name)
             safe_field_type = self._validated_column_type(field_type)
-            is_nullable_type = (
-                safe_field_type.lower().startswith("nullable(")
-                and safe_field_type.endswith(")")
-            )
+            is_nullable_type = safe_field_type.lower().startswith(
+                "nullable("
+            ) and safe_field_type.endswith(")")
 
             if nullable and not is_nullable_type:
                 safe_field_type = f"Nullable({safe_field_type})"

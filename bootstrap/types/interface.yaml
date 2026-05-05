@@ -11,7 +11,7 @@ types:
         field_type: String
         nullable: true
       - field_name: interface_id
-        field_type: Integer
+        field_type: Int32
         nullable: true
       - field_name: description
         field_type: String
@@ -20,7 +20,7 @@ types:
         field_type: String
         nullable: true
       - field_name: max_bandwidth
-        field_type: Integer
+        field_type: Int64
         nullable: true
       - field_name: parent_interface
         field_type: String

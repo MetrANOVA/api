@@ -2,7 +2,7 @@ types:
   pop:
     meta_fields:
       - field_name: pop_id
-        field_type: Integer
+        field_type: Int32
         nullable: false
       - field_name: name
         field_type: String
