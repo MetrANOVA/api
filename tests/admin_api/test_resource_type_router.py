@@ -204,7 +204,7 @@ def test_batch_create_or_update_resource_types_reports_created_updated_failed():
 
     async def fake_find(slug: str):
         state["count"] += 1
-        if slug == "new-type":
+        if slug == "new_type":
             return None
         return {"slug": slug}
 
@@ -222,10 +222,10 @@ def test_batch_create_or_update_resource_types_reports_created_updated_failed():
         consumer_config_updates=None,
         ext_updates=None,
     ):
-        if slug == "existing-type":
+        if slug == "existing_type":
             return (
                 True,
-                "Resource type 'existing-type' updated to def_existing-type__v2",
+                "Resource type 'existing_type' updated to def_existing_type__v2",
             )
         return False, "schema update failed"
 
@@ -271,9 +271,9 @@ def test_batch_create_or_update_resource_types_reports_created_updated_failed():
 
     result = asyncio.run(batch_create_or_update_resource_types(request, storage))
 
-    assert [item["slug"] for item in result["created"]] == ["new-type"]
-    assert [item["slug"] for item in result["updated"]] == ["existing-type"]
-    assert [item["slug"] for item in result["failed"]] == ["broken-type"]
+    assert [item["slug"] for item in result["created"]] == ["new_type"]
+    assert [item["slug"] for item in result["updated"]] == ["existing_type"]
+    assert [item["slug"] for item in result["failed"]] == ["broken_type"]
 
 
 def test_batch_create_or_update_resource_types_continues_on_exception():

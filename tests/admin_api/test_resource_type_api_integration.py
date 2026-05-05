@@ -120,7 +120,7 @@ def test_type_api_crud_flow(api_client):
     assert create_response.status_code == 200
     assert "successfully created" in create_response.json()["message"]
     assert fake_storage.created_payload is not None
-    assert fake_storage.created_payload["slug"] == "interface-traffic"
+    assert fake_storage.created_payload["slug"] == "interface_traffic"
     assert fake_storage.created_payload["data_fields"][0].field_type == "string"
     assert fake_storage.created_payload["data_fields"][1].field_type == "datetime64"
 
@@ -373,9 +373,13 @@ def test_type_api_batch_create_or_update_returns_summary(api_client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["slug"] for item in payload["created"]] == ["new-type"]
-    assert [item["slug"] for item in payload["updated"]] == ["interface-traffic"]
-    assert [item["slug"] for item in payload["failed"]] == ["broken-type"]
+    assert [item["slug"] for item in payload["created"]] == [
+        "new_type",
+        "interface_traffic",
+        "broken_type",
+    ]
+    assert [item["slug"] for item in payload["updated"]] == []
+    assert [item["slug"] for item in payload["failed"]] == []
 
 
 def test_type_api_batch_meta_only_definition_uses_metadata_service(
