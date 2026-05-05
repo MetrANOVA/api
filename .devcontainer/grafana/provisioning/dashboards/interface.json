@@ -1,0 +1,299 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "fieldMinMax": false,
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "percentage",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "#EAB839",
+                                "value": 60
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 15,
+                "w": 8,
+                "x": 0,
+                "y": 0
+            },
+            "id": 2,
+            "options": {
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showThresholdLabels": true,
+                "showThresholdMarkers": true,
+                "sizing": "auto"
+            },
+            "pluginVersion": "12.4.2",
+            "targets": [
+                {
+                    "builderOptions": {
+                        "aggregates": [
+                            {
+                                "aggregateType": "avg",
+                                "alias": "",
+                                "column": "cpu_total"
+                            }
+                        ],
+                        "columns": [
+                            {
+                                "hint": "time",
+                                "name": "insert_time",
+                                "type": "DateTime"
+                            }
+                        ],
+                        "database": "metranova",
+                        "filters": [
+                            {
+                                "condition": "AND",
+                                "filterType": "custom",
+                                "hint": "time",
+                                "key": "",
+                                "operator": "WITH IN DASHBOARD TIME RANGE",
+                                "type": "datetime"
+                            }
+                        ],
+                        "groupBy": [
+                            "node",
+                            "cpu"
+                        ],
+                        "limit": 1000,
+                        "meta": {},
+                        "mode": "trend",
+                        "orderBy": [
+                            {
+                                "dir": "ASC",
+                                "name": "time"
+                            }
+                        ],
+                        "queryType": "timeseries",
+                        "table": "data_cpu"
+                    },
+                    "editorType": "builder",
+                    "format": 0,
+                    "pluginVersion": "4.17.0",
+                    "rawSql": "SELECT $__timeInterval(insert_time) as \"time\", node, cpu, avg(cpu_total) FROM \"metranova\".\"data_cpu\" WHERE ( time >= $__fromTime AND time <= $__toTime ) GROUP BY node, cpu, time ORDER BY time ASC LIMIT 1000",
+                    "refId": "A"
+                }
+            ],
+            "title": "CPU Total",
+            "type": "gauge"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "Bps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 15,
+                "w": 16,
+                "x": 8,
+                "y": 0
+            },
+            "id": 1,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.4.2",
+            "targets": [
+                {
+                    "builderOptions": {
+                        "aggregates": [
+                            {
+                                "aggregateType": "avg",
+                                "column": "tx_bytes"
+                            },
+                            {
+                                "aggregateType": "avg",
+                                "column": "rx_bytes"
+                            }
+                        ],
+                        "columns": [
+                            {
+                                "hint": "time",
+                                "name": "insert_time",
+                                "type": "DateTime"
+                            }
+                        ],
+                        "database": "metranova",
+                        "filters": [
+                            {
+                                "condition": "AND",
+                                "filterType": "custom",
+                                "hint": "time",
+                                "key": "",
+                                "operator": "WITH IN DASHBOARD TIME RANGE",
+                                "type": "datetime"
+                            }
+                        ],
+                        "groupBy": [
+                            "node",
+                            "intf"
+                        ],
+                        "limit": 1000,
+                        "meta": {},
+                        "mode": "trend",
+                        "orderBy": [
+                            {
+                                "default": true,
+                                "dir": "ASC",
+                                "hint": "time",
+                                "name": ""
+                            }
+                        ],
+                        "queryType": "timeseries",
+                        "table": "data_interfacev2"
+                    },
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "clickhouse"
+                    },
+                    "editorType": "builder",
+                    "format": 0,
+                    "pluginVersion": "4.17.0",
+                    "rawSql": "SELECT $__timeInterval(insert_time) as \"time\", node, intf, avg(tx_bytes), avg(rx_bytes) FROM \"metranova\".\"data_interfacev2\" WHERE ( time >= $__fromTime AND time <= $__toTime ) GROUP BY node, intf, time ORDER BY time ASC LIMIT 1000",
+                    "refId": "A"
+                }
+            ],
+            "title": "Interface Throughput",
+            "type": "timeseries"
+        }
+    ],
+    "preload": false,
+    "refresh": "1m",
+    "schemaVersion": 42,
+    "tags": [],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-1h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Node Overview",
+    "uid": "adbtwx6",
+    "version": 3,
+    "weekStart": ""
+}
