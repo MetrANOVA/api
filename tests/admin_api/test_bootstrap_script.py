@@ -6,7 +6,7 @@ from pathlib import Path
 
 def _load_bootstrap_module():
     spec = importlib.util.spec_from_file_location(
-        "bootstrap_script", "/app/bin/bootstrap.py"
+        "bootstrap_script", "bin/bootstrap.py"
     )
     assert spec is not None
     assert spec.loader is not None
