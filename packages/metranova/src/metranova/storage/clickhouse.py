@@ -8,7 +8,6 @@ from .base import StorageEngine, CollectionField, CollectionType
 from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -163,6 +162,40 @@ class Clickhouse(StorageEngine):
 
         return type_token_pattern.sub(replace_token, value)
 
+    @staticmethod
+    def _exists_result_to_bool(result) -> bool:
+        rows = getattr(result, "result_rows", None) or []
+        if not rows:
+            return False
+
+        first_row = rows[0]
+        first_value = first_row
+        if isinstance(first_row, dict):
+            first_value = next(iter(first_row.values()), 0)
+        elif isinstance(first_row, (list, tuple)) and first_row:
+            first_value = first_row[0]
+
+        if isinstance(first_value, bool):
+            return first_value
+
+        try:
+            return int(first_value) == 1
+        except TypeError, ValueError:
+            # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+            return True
+
+    async def _table_exists(self, table_name: str) -> bool:
+        qualified_name = self._qualified_table_name(table_name)
+        result = await self.client.query(f"EXISTS TABLE {qualified_name}")
+        return self._exists_result_to_bool(result)
+
+    @staticmethod
+    def _render_ttl_interval(ttl: str) -> str:
+        ttl_expr = ttl.strip()
+        if ttl_expr.upper().startswith("INTERVAL "):
+            return ttl_expr
+        return f"INTERVAL {ttl_expr}"
+
     async def create_resource_type(
         self,
         name: str,
@@ -186,7 +219,7 @@ class Clickhouse(StorageEngine):
             logger.exception(e)
             return False, "Error ensuring definition table"
         if not slug:
-            slug = name.lower().replace(" ", "-")
+            slug = name.lower().replace(" ", "_")
 
         existing = await self.find_resource_type_by_slug(slug)
         if existing:
@@ -223,11 +256,11 @@ class Clickhouse(StorageEngine):
                 )
 
         # Verify all identifier fields are present in meta fields
-        meta_field_names = {f.name for f in normalized_meta}
-        missing = [key for key in identifier if key not in meta_field_names]
-        if missing:
-            logger.error(f"Identifier fields missing from meta fields: {missing}")
-            return False, f"identifier fields not found in meta fields: {missing}"
+        # meta_field_names = {f.name for f in normalized_meta}
+        # missing = [key for key in identifier if key not in meta_field_names]
+        # if missing:
+        #     logger.error(f"Identifier fields missing from meta fields: {missing}")
+        #     return False, f"identifier fields not found in meta fields: {missing}"
 
         data_fields_tuple = [
             (f.field_name, f.field_type, f.nullable) for f in data_fields
@@ -246,23 +279,40 @@ class Clickhouse(StorageEngine):
         # ClickHouse DDL cannot be rolled back — tables first so that a failed
         # definition insert leaves orphaned tables (recoverable) rather than
         # definition rows pointing at non-existent tables (not recoverable).
-        try:
-            await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
-        except Exception as e:
-            logger.exception(f"Error creating data table for '{slug}': {e}")
-            return False, "Error during data table creation"
+        data_table_name = f"data_{slug}"
+        data_table_exists = await self._table_exists(data_table_name)
+        if data_table_exists:
+            logger.warning(
+                "Data table '%s' already exists without definition; reusing existing table",
+                data_table_name,
+            )
+        else:
+            try:
+                await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
+            except Exception as e:
+                logger.exception(f"Error creating data table for '{slug}': {e}")
+                return False, "Error during data table creation"
 
-        try:
-            # Reference-type fields are logical; skip them in the physical DDL
-            physical_meta_fields = [
-                MetadataField(name=f.name, type=f.type, nullable=f.nullable)
-                for f in meta_fields
-                if f.type.lower() != "reference"
-            ]
-            await self.create_meta_table(slug, physical_meta_fields, identifier)
-        except Exception as e:
-            logger.exception(f"Error creating meta table for '{slug}': {e}")
-            return False, "Error during meta table creation"
+        if len(meta_fields) > 0:
+            meta_table_name = f"meta_{slug}"
+            meta_table_exists = await self._table_exists(meta_table_name)
+            if meta_table_exists:
+                logger.warning(
+                    "Meta table '%s' already exists without definition; reusing existing table",
+                    meta_table_name,
+                )
+            else:
+                try:
+                    # Reference-type fields are logical; skip them in the physical DDL
+                    physical_meta_fields = [
+                        MetadataField(name=f.name, type=f.type, nullable=f.nullable)
+                        for f in meta_fields
+                        if f.type.lower() != "reference"
+                    ]
+                    await self.create_meta_table(slug, physical_meta_fields, identifier)
+                except Exception as e:
+                    logger.exception(f"Error creating meta table for '{slug}': {e}")
+                    return False, "Error during meta table creation"
 
         column_names = [
             "id",
@@ -317,8 +367,7 @@ class Clickhouse(StorageEngine):
             return None
 
         try:
-            result = await self.client.query(
-                f"""
+            result = await self.client.query(f"""
                 SELECT
                     id,
                     ref,
@@ -332,8 +381,7 @@ class Clickhouse(StorageEngine):
                     is_replicated,
                     updated_at
                 FROM {self.database}.definition
-                """
-            )
+                """)
             column_names = [
                 "id",
                 "ref",
@@ -415,12 +463,22 @@ class Clickhouse(StorageEngine):
         for field_name, field_type, nullable in fields:
             safe_field_name = self._quoted_identifier(field_name)
             safe_field_type = self._validated_column_type(field_type)
+            is_nullable_type = safe_field_type.lower().startswith(
+                "nullable("
+            ) and safe_field_type.endswith(")")
+
+            if nullable and not is_nullable_type:
+                safe_field_type = f"Nullable({safe_field_type})"
+            elif not nullable and is_nullable_type:
+                # Keep the physical type aligned with the nullable flag.
+                safe_field_type = safe_field_type[
+                    safe_field_type.find("(") + 1 : -1
+                ].strip()
+
             query = (
                 f"ALTER TABLE {self._qualified_table_name(table_name)} "
                 f"ADD COLUMN IF NOT EXISTS {safe_field_name} {safe_field_type}"
             )
-            if not nullable:
-                query += " NOT NULL"
             await self.client.command(query)
 
     async def find_resource_type_schema_by_slug(self, slug: str):
@@ -490,6 +548,7 @@ class Clickhouse(StorageEngine):
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause()
+        ttl_interval = self._render_ttl_interval(ttl)
         query = f"""
         CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause}
         (
@@ -505,7 +564,7 @@ class Clickhouse(StorageEngine):
         ORDER BY (collector_id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
         PARTITION BY toYYYYMM(insert_time)
-        TTL insert_time + INTERVAL {ttl};
+        TTL insert_time + {ttl_interval};
         """
 
         logger.info(query)
@@ -565,6 +624,7 @@ class Clickhouse(StorageEngine):
         self,
         slug: str,
         fields: list[CollectionField] | None = None,
+        meta_fields: list[MetadataField] | None = None,
         consumer_config_updates: dict | None = None,
         ext_updates: dict | None = None,
     ) -> tuple[bool, str]:
@@ -581,46 +641,95 @@ class Clickhouse(StorageEngine):
         if current is None:
             return False, f"Resource type with slug '{slug}' not found"
 
-        current_def = self._definition_to_dict(current)
         new_fields = fields or []
+        new_meta_fields = meta_fields or []
+
         config_updates = consumer_config_updates or {}
         ext_updates = ext_updates or {}
 
-        if not new_fields and not config_updates and not ext_updates:
+        if (
+            not new_fields
+            and not new_meta_fields
+            and not config_updates
+            and not ext_updates
+        ):
             return False, "No additive updates provided"
 
-        existing_fields = current_def.get("data_fields") or []
-        existing_field_names = set()
-        normalized_fields = []
-        for field in existing_fields:
-            if isinstance(field, dict):
-                field_name = field.get("field_name")
-                field_type = field.get("field_type")
-                nullable = field.get("nullable", True)
-                existing_field_names.add(field_name)
-                normalized_fields.append((field_name, field_type, nullable))
-            else:
-                existing_field_names.add(field[0])
-                normalized_fields.append(field)
+        current_def = self._definition_to_dict(current)
+
+        existing_data = current_def.get("data_fields") or []
+        normalized_data = [
+            self._normalize_data_field_tuple(field) for field in existing_data
+        ]
+        existing_data_names = {field[0] for field in normalized_data}
+
+        duplicate_field = next(
+            (
+                field.field_name
+                for field in new_fields
+                if field.field_name in existing_data_names
+            ),
+            None,
+        )
+        if duplicate_field is not None:
+            return False, f"Field '{duplicate_field}' already exists"
+
+        existing_meta = current_def.get("meta_fields") or []
+        normalized_meta = [
+            self._normalize_meta_field_tuple(field) for field in existing_meta
+        ]
+        existing_meta_names = {field[0] for field in normalized_meta}
+
+        duplicate_meta_field = next(
+            (
+                field.name
+                for field in new_meta_fields
+                if field.name in existing_meta_names
+            ),
+            None,
+        )
+        if duplicate_meta_field is not None:
+            return False, f"Meta field '{duplicate_meta_field}' already exists"
 
         ch_types = await self._get_ch_types()
-        fields_to_add = []
-        for field in new_fields:
-            if field.field_name in existing_field_names:
-                return False, f"Field '{field.field_name}' already exists"
-            canonical_type = self._canonicalize_column_type(field.field_type, ch_types)
-            fields_to_add.append((field.field_name, canonical_type, field.nullable))
 
-        table_name = f"data_{slug}"
+        data_fields_to_add = []
+        for field in new_fields:
+            canonical_type = self._canonicalize_column_type(field.field_type, ch_types)
+            data_fields_to_add.append(
+                (field.field_name, canonical_type, field.nullable)
+            )
+
+        meta_fields_to_add = []
+        for field in new_meta_fields:
+            if field.type.lower() == "reference":
+                canonical_type = "String"
+            else:
+                canonical_type = self._canonicalize_column_type(field.type, ch_types)
+            meta_fields_to_add.append(
+                (field.name, canonical_type, field.nullable, field.table or "")
+            )
+
+        if not data_fields_to_add and not meta_fields_to_add:
+            return False, "No additive updates provided"
 
         try:
-            if fields_to_add:
-                await self._add_columns_to_table(table_name, fields_to_add)
+            if data_fields_to_add:
+                await self._add_columns_to_table(f"data_{slug}", data_fields_to_add)
+            if meta_fields_to_add:
+                await self._add_columns_to_table(
+                    f"meta_{slug}",
+                    [
+                        (field_name, field_type, nullable)
+                        for field_name, field_type, nullable, _ in meta_fields_to_add
+                    ],
+                )
         except Exception as e:
-            logger.exception(f"Error altering table metranova.{table_name}: {e}")
+            logger.exception(f"Error altering schema for slug '{slug}': {e}")
             return False, "Error updating table schema"
 
-        merged_fields = [*normalized_fields, *fields_to_add]
+        merged_data_fields = [*normalized_data, *data_fields_to_add]
+        merged_meta_fields = [*normalized_meta, *meta_fields_to_add]
 
         new_ref = self._bump_ref_version(current_def["ref"], current_def["id"])
         row = [
@@ -628,8 +737,8 @@ class Clickhouse(StorageEngine):
             new_ref,
             current_def["name"],
             current_def["slug"],
-            current_def.get("meta_fields") or [],
-            merged_fields,
+            merged_meta_fields,
+            merged_data_fields,
             current_def.get("identifier") or [],
             current_def["ttl"],
             current_def["engine_type"],
@@ -659,30 +768,34 @@ class Clickhouse(StorageEngine):
             logger.exception(f"Error writing updated definition for slug '{slug}': {e}")
             return False, "Error persisting updated definition"
 
+    def _normalize_data_field_tuple(self, field) -> tuple[str, str, bool]:
+        if isinstance(field, dict):
+            return (
+                field.get("field_name"),
+                field.get("field_type"),
+                field.get("nullable", True),
+            )
+        return (field[0], field[1], field[2])
+
+    def _normalize_meta_field_tuple(self, field) -> tuple[str, str, bool, str]:
+        if isinstance(field, dict):
+            return (
+                field.get("field_name"),
+                field.get("field_type"),
+                field.get("nullable", True),
+                field.get("table") or "",
+            )
+        if len(field) >= 4:
+            return (field[0], field[1], field[2], field[3] or "")
+        return (field[0], field[1], field[2], "")
+
     async def _ensure_definition_table(self) -> None:
         if not await self.is_connected():
             await self.connect()
 
         definition_table = self._qualified_table_name("definition")
         result = await self.client.query(f"EXISTS TABLE {definition_table}")
-        rows = getattr(result, "result_rows", None) or []
-        exists = False
-        if rows:
-            first_row = rows[0]
-            first_value = first_row
-            if isinstance(first_row, dict):
-                first_value = next(iter(first_row.values()), 0)
-            elif isinstance(first_row, (list, tuple)) and first_row:
-                first_value = first_row[0]
-
-            if isinstance(first_value, bool):
-                exists = first_value
-            else:
-                try:
-                    exists = int(first_value) == 1
-                except (TypeError, ValueError):
-                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
-                    exists = True
+        exists = self._exists_result_to_bool(result)
 
         if exists:
             return
@@ -691,8 +804,7 @@ class Clickhouse(StorageEngine):
 
         # TODO: Consider ENGINE type for this table. Maybe it should always be a
         # MergeTree?
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {definition_table}{on_cluster_clause}
             (
                 id String,
@@ -719,8 +831,7 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY ref
-        """
-        )
+        """)
 
     async def _get_ch_types(self):
         names = await self.client.query("SELECT name FROM system.data_type_families")
@@ -756,8 +867,7 @@ class Clickhouse(StorageEngine):
         return f" ON CLUSTER '{safe_cluster_name}'"
 
     async def get_cluster_info(self):
-        result = await self.client.query(
-            """
+        result = await self.client.query("""
             SELECT
                 cluster,
                 shard_num,
@@ -768,8 +878,7 @@ class Clickhouse(StorageEngine):
             FROM system.clusters
             WHERE is_local = 0
             ORDER BY cluster, shard_num, replica_num
-        """
-        )
+        """)
 
         rows = result.result_rows
         if not rows:
@@ -819,7 +928,7 @@ class Clickhouse(StorageEngine):
             else:
                 try:
                     exists = int(first_value) == 1
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
         if exists:
@@ -827,8 +936,7 @@ class Clickhouse(StorageEngine):
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
             (
                 id String,                -- Stable identifier (e.g., 'trans_interface_std')
@@ -843,8 +951,7 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (ref);
-        """
-        )
+        """)
 
     async def ensure_transformer_column_table(self):
         if not await self.is_connected():
@@ -868,14 +975,13 @@ class Clickhouse(StorageEngine):
             else:
                 try:
                     exists = int(first_value) == 1
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
             (
                 id String,
@@ -891,5 +997,4 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
-        """
-        )
+        """)

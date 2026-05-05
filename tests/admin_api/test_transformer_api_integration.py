@@ -65,7 +65,13 @@ class FakeClickhouseClient:
                 # get by id
                 if self.storage.transformer_by_id is None:
                     return QueryResult(0)
-                return QueryResult(1, named_rows=[self.storage.transformer_by_id])
+                transformer_id = parameters.get("id")
+                if transformer_id is None:
+                    return QueryResult(0)
+                row = self.storage.transformers_by_id.get(transformer_id)
+                if row is None:
+                    return QueryResult(0)
+                return QueryResult(1, named_rows=[row])
             else:
                 # list all / filtered
                 rows = list(self.storage.transformer_list)
@@ -119,6 +125,10 @@ class FakeStorage:
         self.last_command = None
         self.transformer_list = [SNMP_TRANSFORMER, FLOW_TRANSFORMER]
         self.transformer_by_id = dict(SNMP_TRANSFORMER)
+        self.transformers_by_id = {
+            "snmp_normalizer": dict(SNMP_TRANSFORMER),
+            "flow_normalizer": dict(FLOW_TRANSFORMER),
+        }
         self.transformer_columns = [
             {
                 "id": "map_utilization",
@@ -766,3 +776,101 @@ def test_transformer_columns_update_validates_config_against_new_operation(
     )
 
     assert response.status_code == 200
+
+
+# --- POST /transformers/batch ---
+
+
+def test_transformer_batch_create_and_update_summary(transformer_api_client):
+    client, _ = transformer_api_client
+
+    response = client.post(
+        "/transformers/batch",
+        json={
+            "transformers": [
+                {
+                    "name": "New Transformer",
+                    "definition_ref": "def_snmp__v1",
+                    "description": "Create me",
+                    "match_field": "device_type",
+                    "columns": [
+                        {
+                            "id": "new_col",
+                            "target_column": "new_target",
+                            "operation": "field",
+                            "config": {"source": "new_source"},
+                            "order": 1,
+                        }
+                    ],
+                },
+                {
+                    "name": "SNMP Normalizer",
+                    "definition_ref": "def_snmp__v1",
+                    "description": "Normalize SNMP metrics v2",
+                    "match_field": "device_type",
+                    "columns": [
+                        {
+                            "id": "map_utilization",
+                            "target_column": "utilization",
+                            "operation": "field",
+                            "config": {"source": "if_util_v2"},
+                            "order": 1,
+                        }
+                    ],
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload["created"]] == ["new_transformer"]
+    assert [item["id"] for item in payload["updated"]] == ["snmp_normalizer"]
+    assert payload["failed"] == []
+
+
+def test_transformer_batch_continue_on_error(transformer_api_client):
+    client, _ = transformer_api_client
+
+    response = client.post(
+        "/transformers/batch",
+        json={
+            "transformers": [
+                {
+                    "name": "Broken Transformer",
+                    "definition_ref": "def_snmp__v1",
+                    "description": "Will fail",
+                    "match_field": "device_type",
+                    "columns": [
+                        {
+                            "id": "bad_col",
+                            "target_column": "bad_target",
+                            "operation": "does_not_exist",
+                            "config": {},
+                            "order": 1,
+                        }
+                    ],
+                },
+                {
+                    "name": "Recovery Transformer",
+                    "definition_ref": "def_snmp__v1",
+                    "description": "Should still create",
+                    "match_field": "device_type",
+                    "columns": [
+                        {
+                            "id": "good_col",
+                            "target_column": "good_target",
+                            "operation": "field",
+                            "config": {"source": "good_source"},
+                            "order": 1,
+                        }
+                    ],
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload["failed"]] == ["broken_transformer"]
+    assert [item["id"] for item in payload["created"]] == ["recovery_transformer"]

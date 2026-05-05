@@ -1,0 +1,91 @@
+types:
+  interface:
+    meta_fields:
+      - field_name: node
+        field_type: String
+        nullable: false
+      - field_name: intf
+        field_type: String
+        nullable: false
+      - field_name: alternate_intf
+        field_type: String
+        nullable: true
+      - field_name: interface_id
+        field_type: Int32
+        nullable: true
+      - field_name: description
+        field_type: String
+        nullable: true
+      - field_name: network
+        field_type: String
+        nullable: true
+      - field_name: max_bandwidth
+        field_type: Int64
+        nullable: true
+      - field_name: parent_interface
+        field_type: String
+        nullable: true
+      - field_name: node_ref
+        field_type: reference
+        nullable: true
+        table: meta_device
+      - field_name: tag_ref
+        field_type: reference
+        nullable: true
+        table: meta_tag
+      - field_name: entity_ref
+        field_type: reference
+        nullable: true
+        table: meta_entity
+      - field_name: kvp_ref
+        field_type: reference
+        nullable: true
+        table: meta_kvp
+      - field_name: circuit_ref
+        field_type: reference
+        nullable: true
+        table: meta_circuit
+      - field_name: address_ref
+        field_type: reference
+        nullable: true
+        table: meta_address
+      - field_name: pop_ref
+        field_type: reference
+        nullable: true
+        table: meta_pop
+      - field_name: service_ref
+        field_type: reference
+        nullable: true
+        table: meta_service
+      - field_name: type
+        field_type: String
+        nullable: true
+    data_fields:
+      - field_name: node
+        field_type: String
+        nullable: false
+      - field_name: intf
+        field_type: String
+        nullable: false
+      - field_name: input
+        field_type: Float32
+        nullable: false
+      - field_name: output
+        field_type: Float32
+        nullable: true
+      - field_name: inerror
+        field_type: Float32
+        nullable: true
+      - field_name: outerror
+        field_type: Float32
+        nullable: true
+      - field_name: inUcast
+        field_type: Float32
+        nullable: true
+      - field_name: outUcast
+        field_type: Float32
+        nullable: true
+    identifier:
+      - node
+      - intf
+    ttl: INTERVAL 365 DAY

@@ -64,6 +64,7 @@ class StorageEngine(ABC):
         self,
         slug: str,
         fields: list[CollectionField] | None = None,
+        meta_fields: list[MetadataField] | None = None,
         consumer_config_updates: dict | None = None,
         ext_updates: dict | None = None,
     ) -> tuple[bool, str]:

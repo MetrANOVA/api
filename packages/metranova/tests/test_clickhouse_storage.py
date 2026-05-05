@@ -376,6 +376,12 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE `metranova`.`definition`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`data_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[0]])
+        if "EXISTS TABLE `metranova`.`meta_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[0]])
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -404,6 +410,48 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     assert success[0] is False
     assert success[1] == "Error during data table creation"
     assert len(storage.client.insert_calls) == 0
+
+
+def test_create_resource_type_reuses_existing_tables_and_inserts_definition(
+    monkeypatch,
+):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE `metranova`.`definition`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`data_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`meta_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        return SimpleNamespace(result_rows=[[1]])
+
+    storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Traffic",
+            slug="interface-traffic",
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
+            identifier=["if_name"],
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is True
+    assert "successfully created" in success[1]
+    assert len(storage.client.command_calls) == 0
+    assert len(storage.client.insert_calls) == 1
 
 
 def test_ensure_definition_table_skips_when_exists(monkeypatch):

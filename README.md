@@ -24,6 +24,18 @@ This repository uses a `uv` workspace with three packages:
 - `python bin/start-admin-api.py`
 - `python bin/start-pipeline.py`
 
+## Bootstrapping definitions
+
+Use the bootstrap script to upload type and transformer definitions from YAML.
+
+- `python bin/bootstrap.py --from bootstrap --api-url http://localhost:8000`
+
+Notes:
+
+- `--from` accepts either a single YAML file or a directory.
+- Directories are searched recursively for `.yaml` and `.yml` files.
+- YAML files must include top-level `types` and/or `transformers`.
+
 Each `bin/` script runs the package module form (`python -m <package>`) via `uv run --package <package> ...` so the correct workspace package and dependencies are used.
 
 ## Running tests

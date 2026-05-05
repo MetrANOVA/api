@@ -1,0 +1,46 @@
+transformers:
+  all_interfaces:
+    definition_id: def_interface
+    description: Interface Traffic transformers
+    match_field: protocol
+    columns:
+      inUcast_field:
+        target_column: inUcast
+        match_value: snmp
+        operation: field
+        config:
+          source: SNMP_IF-MIB::ifHCInUcastPkts
+      outUcast_field:
+        target_column: outUcast
+        match_value: snmp
+        operation: field
+        config:
+          source: SNMP_IF-MIB::ifHCOutUcastPkts
+      inerror_field:
+        target_column: inerror
+        match_value: snmp
+        operation: field
+        config:
+          source: SNMP_IF-MIB::ifInErrors
+      outerror_field:
+        target_column: outerror
+        match_value: snmp
+        operation: field
+        config:
+          source: SNMP_IF-MIB::ifOutErrors
+      input_field:
+        target_column: input
+        match_value: snmp
+        operation: postfix
+        config:
+          field: SNMP_IF-MIB::ifHCInOctets
+          expression: value 8 *
+          cast: int
+      output_field:
+        target_column: output
+        match_value: snmp
+        operation: postfix
+        config:
+          field: SNMP_IF-MIB::ifHCOutOctets
+          expression: value 8 *
+          cast: int
