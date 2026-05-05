@@ -27,7 +27,7 @@ class MetaFields(BaseModel):
 class CreateResourceTypeRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])
     data_fields: list[ResourceFieldRequest] = Field(min_length=1)
-    meta_fields: list[MetaFieldRequest] = Field(min_length=1)
+    meta_fields: list[MetaFieldRequest] = Field(default_factory=list)
     identifier: list[str] = Field(min_length=1)
     ttl: str = Field(min_length=1, examples=["365 DAY"])
 
@@ -55,12 +55,14 @@ class CreateResourceTypeRequest(BaseModel):
         if len(meta_field_names) != len(set(meta_field_names)):
             raise ValueError("meta fields must have unique field_name values")
 
+        identifier_scope = meta_field_names if meta_field_names else data_field_names
         missing_identifiers = [
-            key for key in self.identifier if key not in meta_field_names
+            key for key in self.identifier if key not in identifier_scope
         ]
         if missing_identifiers:
+            scope_label = "meta fields" if meta_field_names else "data fields"
             raise ValueError(
-                f"identifier fields must exist in meta fields: {missing_identifiers}"
+                f"identifier fields must exist in {scope_label}: {missing_identifiers}"
             )
 
         return self
@@ -69,24 +71,24 @@ class CreateResourceTypeRequest(BaseModel):
 class BatchResourceTypeDefinitionRequest(BaseModel):
     name: str = Field(min_length=1, examples=["Interface Traffic"])
     data_fields: list[ResourceFieldRequest] = Field(default_factory=list)
-    meta_fields: list[MetaFieldRequest] = Field(min_length=1)
-    identifier: list[str] = Field(min_length=1)
+    meta_fields: list[MetaFieldRequest] = Field(default_factory=list)
+    identifier: list[str] = Field(default_factory=list)
     ttl: str | None = Field(default=None, min_length=1, examples=["365 DAY"])
 
-    @field_validator("ttl")
-    @classmethod
-    def validate_ttl_format(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        pattern = r"^\d+\s+(SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)$"
-        if not re.match(pattern, v.upper()):
-            raise ValueError(
-                "ttl must be a valid ClickHouse interval format "
-                "(e.g., '365 DAY', '30 MONTH', '1 YEAR'). "
-                "Format: <number> <TIME_UNIT> where TIME_UNIT is one of: "
-                "SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, YEAR"
-            )
-        return v.upper()
+    # @field_validator("ttl")
+    # @classmethod
+    # def validate_ttl_format(cls, v: str | None) -> str | None:
+    #     if v is None:
+    #         return None
+    #     pattern = r"^\d+\s+(SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)$"
+    #     if not re.match(pattern, v.upper()):
+    #         raise ValueError(
+    #             "ttl must be a valid ClickHouse interval format "
+    #             "(e.g., '365 DAY', '30 MONTH', '1 YEAR'). "
+    #             "Format: <number> <TIME_UNIT> where TIME_UNIT is one of: "
+    #             "SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, YEAR"
+    #         )
+    #     return v.upper()
 
     @model_validator(mode="after")
     def validate_fields_and_identifiers(self):
@@ -104,12 +106,17 @@ class BatchResourceTypeDefinitionRequest(BaseModel):
         if len(meta_field_names) != len(set(meta_field_names)):
             raise ValueError("meta fields must have unique field_name values")
 
+        if not self.identifier and self.data_fields:
+            raise ValueError("identifier is required when data_fields are provided")
+
+        identifier_scope = meta_field_names if meta_field_names else data_field_names
         missing_identifiers = [
-            key for key in self.identifier if key not in meta_field_names
+            key for key in self.identifier if key not in identifier_scope
         ]
         if missing_identifiers:
+            scope_label = "meta fields" if meta_field_names else "data fields"
             raise ValueError(
-                f"identifier fields must exist in meta fields: {missing_identifiers}"
+                f"identifier fields must exist in {scope_label}: {missing_identifiers}"
             )
 
         return self

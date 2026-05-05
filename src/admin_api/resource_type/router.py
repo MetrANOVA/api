@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from metranova.storage.clickhouse import Clickhouse
 from metranova.storage.base import CollectionField
-from admin_api.metadata.service import MetadataField, MetadataService, slugify
+from admin_api.metadata.service import MetadataField, MetadataService
 from .model import (
     BatchCreateResourceTypeRequest,
     CreateResourceTypeRequest,
@@ -39,6 +39,23 @@ def _to_metadata_fields(fields):
     ]
 
 
+def _metadata_fields_for_creation(data_fields, meta_fields, identifier):
+    if meta_fields:
+        return _to_metadata_fields(meta_fields)
+
+    return []
+    # data_by_name = {field.field_name: field for field in data_fields}
+    # return [
+    #     MetadataField(
+    #         name=key,
+    #         type=data_by_name[key].field_type,
+    #         nullable=data_by_name[key].nullable,
+    #         table=None,
+    #     )
+    #     for key in identifier
+    # ]
+
+
 def _existing_data_field_names(definition) -> set[str]:
     values = (
         definition.get("data_fields") if isinstance(definition, dict) else definition[5]
@@ -72,15 +89,19 @@ async def create_resource_type(
     request: CreateResourceTypeRequest,
     se: Clickhouse = Depends(get_clickhouse),
 ):
-    data_fields = _to_collection_fields(request.data_fields)
-    meta_fields = _to_metadata_fields(request.meta_fields)
+    data_fields = request.data_fields
+    meta_fields = _metadata_fields_for_creation(
+        data_fields=data_fields,
+        meta_fields=request.meta_fields,
+        identifier=request.identifier,
+    )
 
     slug = request.name.lower().replace(" ", "_")
     try:
         success, msg = await se.create_resource_type(
             name=request.name,
             slug=slug,
-            data_fields=data_fields,
+            data_fields=_to_collection_fields(data_fields),
             meta_fields=meta_fields,
             identifier=request.identifier,
             ttl=request.ttl,
@@ -110,15 +131,19 @@ async def batch_create_or_update_resource_types(
 
     for definition in request.definitions:
         slug = definition.name.lower().replace(" ", "_")
-        data_fields = _to_collection_fields(definition.data_fields)
-        meta_fields = _to_metadata_fields(definition.meta_fields)
+        definition_data_fields = definition.data_fields
+        data_fields = _to_collection_fields(definition_data_fields)
+        meta_fields = _metadata_fields_for_creation(
+            data_fields=definition_data_fields,
+            meta_fields=definition.meta_fields,
+            identifier=definition.identifier,
+        )
 
         try:
 
             existing = await se.find_resource_type_by_slug(slug)
             if existing is None:
                 if not data_fields and meta_fields:
-                    metadata_slug = slugify(definition.name)
                     metadata_service = MetadataService(se)
                     await metadata_service.create_metadata_type(
                         name=definition.name,
@@ -128,11 +153,12 @@ async def batch_create_or_update_resource_types(
                     created.append(
                         {
                             "name": definition.name,
-                            "slug": metadata_slug,
+                            "slug": slug,
                             "message": f"Metadata type {definition.name} has been successfully created",
                         }
                     )
                     continue
+
                 success, msg = await se.create_resource_type(
                     name=definition.name,
                     slug=slug,

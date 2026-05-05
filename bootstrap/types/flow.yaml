@@ -1,0 +1,91 @@
+types:
+  flow:
+    meta_fields: []
+    data_fields:
+      - field_name: flow_type
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: device_id
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: device_ref
+        field_type: String
+        nullable: true
+      - field_name: src_as_id
+        field_type: UInt32
+        nullable: false
+      - field_name: src_as_ref
+        field_type: String
+        nullable: true
+      - field_name: src_ip
+        field_type: IPv6
+        nullable: false
+      - field_name: src_ip_ref
+        field_type: String
+        nullable: true
+      - field_name: src_port
+        field_type: UInt16
+        nullable: false
+      - field_name: dst_as_id
+        field_type: String
+        nullable: false
+      - field_name: dst_as_ref
+        field_type: String
+        nullable: true
+      - field_name: dst_ip
+        field_type: IPv6
+        nullable: false
+      - field_name: dst_ip_ref
+        field_type: String
+        nullable: true
+      - field_name: dst_port
+        field_type: UInt16
+        nullable: false
+      - field_name: in_interface_id
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: in_interface_ref
+        field_type: String
+        nullable: true
+      - field_name: in_interface_edge
+        field_type: Bool
+        nullable: false
+      - field_name: out_interface_id
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: out_interface_ref
+        field_type: String
+        nullable: true
+      - field_name: out_interface_edge
+        field_type: Bool
+        nullable: false
+      - field_name: peer_as_id
+        field_type: UInt32
+        nullable: true
+      - field_name: peer_as_ref
+        field_type: String
+        nullable: true
+      - field_name: peer_ip
+        field_type: IPv6
+        nullable: true
+      - field_name: peer_ip_ref
+        field_type: String
+        nullable: true
+      - field_name: ip_version
+        field_type: UInt8
+        nullable: false
+      - field_name: application_port
+        field_type: UInt16
+        nullable: false
+      - field_name: bit_count
+        field_type: UInt64
+        nullable: false
+      - field_name: packet_count
+        field_type: UInt64
+        nullable: false
+    ttl: toIntervalDay(30)
+    identifier:
+      - src_as_id
+      - dst_as_id
+      - src_ip
+      - dst_ip

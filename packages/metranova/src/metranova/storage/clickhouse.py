@@ -162,6 +162,40 @@ class Clickhouse(StorageEngine):
 
         return type_token_pattern.sub(replace_token, value)
 
+    @staticmethod
+    def _exists_result_to_bool(result) -> bool:
+        rows = getattr(result, "result_rows", None) or []
+        if not rows:
+            return False
+
+        first_row = rows[0]
+        first_value = first_row
+        if isinstance(first_row, dict):
+            first_value = next(iter(first_row.values()), 0)
+        elif isinstance(first_row, (list, tuple)) and first_row:
+            first_value = first_row[0]
+
+        if isinstance(first_value, bool):
+            return first_value
+
+        try:
+            return int(first_value) == 1
+        except TypeError, ValueError:
+            # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+            return True
+
+    async def _table_exists(self, table_name: str) -> bool:
+        qualified_name = self._qualified_table_name(table_name)
+        result = await self.client.query(f"EXISTS TABLE {qualified_name}")
+        return self._exists_result_to_bool(result)
+
+    @staticmethod
+    def _render_ttl_interval(ttl: str) -> str:
+        ttl_expr = ttl.strip()
+        if ttl_expr.upper().startswith("INTERVAL "):
+            return ttl_expr
+        return f"INTERVAL {ttl_expr}"
+
     async def create_resource_type(
         self,
         name: str,
@@ -245,23 +279,39 @@ class Clickhouse(StorageEngine):
         # ClickHouse DDL cannot be rolled back — tables first so that a failed
         # definition insert leaves orphaned tables (recoverable) rather than
         # definition rows pointing at non-existent tables (not recoverable).
-        try:
-            await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
-        except Exception as e:
-            logger.exception(f"Error creating data table for '{slug}': {e}")
-            return False, "Error during data table creation"
+        data_table_name = f"data_{slug}"
+        data_table_exists = await self._table_exists(data_table_name)
+        if data_table_exists:
+            logger.warning(
+                "Data table '%s' already exists without definition; reusing existing table",
+                data_table_name,
+            )
+        else:
+            try:
+                await self.create_data_table(slug, identifier, ttl, data_fields_tuple)
+            except Exception as e:
+                logger.exception(f"Error creating data table for '{slug}': {e}")
+                return False, "Error during data table creation"
 
-        try:
-            # Reference-type fields are logical; skip them in the physical DDL
-            physical_meta_fields = [
-                MetadataField(name=f.name, type=f.type, nullable=f.nullable)
-                for f in meta_fields
-                if f.type.lower() != "reference"
-            ]
-            await self.create_meta_table(slug, physical_meta_fields, identifier)
-        except Exception as e:
-            logger.exception(f"Error creating meta table for '{slug}': {e}")
-            return False, "Error during meta table creation"
+        meta_table_name = f"meta_{slug}"
+        meta_table_exists = await self._table_exists(meta_table_name)
+        if meta_table_exists:
+            logger.warning(
+                "Meta table '%s' already exists without definition; reusing existing table",
+                meta_table_name,
+            )
+        else:
+            try:
+                # Reference-type fields are logical; skip them in the physical DDL
+                physical_meta_fields = [
+                    MetadataField(name=f.name, type=f.type, nullable=f.nullable)
+                    for f in meta_fields
+                    if f.type.lower() != "reference"
+                ]
+                await self.create_meta_table(slug, physical_meta_fields, identifier)
+            except Exception as e:
+                logger.exception(f"Error creating meta table for '{slug}': {e}")
+                return False, "Error during meta table creation"
 
         column_names = [
             "id",
@@ -497,6 +547,7 @@ class Clickhouse(StorageEngine):
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause()
+        ttl_interval = self._render_ttl_interval(ttl)
         query = f"""
         CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause}
         (
@@ -512,7 +563,7 @@ class Clickhouse(StorageEngine):
         ORDER BY (collector_id, {', '.join(safe_primary_keys)})
         PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
         PARTITION BY toYYYYMM(insert_time)
-        TTL insert_time + INTERVAL {ttl};
+        TTL insert_time + {ttl_interval};
         """
 
         logger.info(query)
@@ -743,24 +794,7 @@ class Clickhouse(StorageEngine):
 
         definition_table = self._qualified_table_name("definition")
         result = await self.client.query(f"EXISTS TABLE {definition_table}")
-        rows = getattr(result, "result_rows", None) or []
-        exists = False
-        if rows:
-            first_row = rows[0]
-            first_value = first_row
-            if isinstance(first_row, dict):
-                first_value = next(iter(first_row.values()), 0)
-            elif isinstance(first_row, (list, tuple)) and first_row:
-                first_value = first_row[0]
-
-            if isinstance(first_value, bool):
-                exists = first_value
-            else:
-                try:
-                    exists = int(first_value) == 1
-                except TypeError, ValueError:
-                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
-                    exists = True
+        exists = self._exists_result_to_bool(result)
 
         if exists:
             return

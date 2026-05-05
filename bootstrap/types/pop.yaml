@@ -12,6 +12,6 @@ types:
         nullable: true
       - field_name: type
         field_type: String
-        nullable: True
+        nullable: true
     identifier:
       - pop_id

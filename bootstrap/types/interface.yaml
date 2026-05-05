@@ -88,4 +88,4 @@ types:
     identifier:
       - node
       - intf
-    ttl: 365 DAY
+    ttl: INTERVAL 365 DAY

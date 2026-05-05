@@ -322,9 +322,7 @@ def test_batch_create_or_update_resource_types_continues_on_exception():
     assert result["created"][0]["slug"] == "next"
 
 
-def test_batch_create_or_update_resource_types_meta_only_uses_metadata_service(
-    monkeypatch,
-):
+def test_batch_create_or_update_resource_types_meta_only_uses_metadata_service():
     storage = DummyStorage(None)
 
     called = {"value": False}
@@ -332,9 +330,11 @@ def test_batch_create_or_update_resource_types_meta_only_uses_metadata_service(
     async def fake_create_metadata_type(self, name, identifier, fields):
         called["value"] = True
         assert name == "POP"
-        assert identifier == ["pop_id"]
+        assert identifier == []
+        assert len(fields) == 1
         assert fields[0].name == "pop_id"
 
+    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         "admin_api.resource_type.router.MetadataService.create_metadata_type",
         fake_create_metadata_type,
@@ -344,17 +344,21 @@ def test_batch_create_or_update_resource_types_meta_only_uses_metadata_service(
         definitions=[
             {
                 "name": "POP",
-                "data_fields": [],
                 "meta_fields": [
-                    {"field_name": "pop_id", "field_type": "String", "nullable": False}
+                    {
+                        "field_name": "pop_id",
+                        "field_type": "String",
+                        "nullable": False,
+                    }
                 ],
-                "identifier": ["pop_id"],
-                "ttl": "7 DAY",
             }
         ]
     )
 
-    result = asyncio.run(batch_create_or_update_resource_types(request, storage))
+    try:
+        result = asyncio.run(batch_create_or_update_resource_types(request, storage))
+    finally:
+        monkeypatch.undo()
 
     assert called["value"] is True
     assert [item["slug"] for item in result["created"]] == ["pop"]

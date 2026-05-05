@@ -95,7 +95,11 @@ class MetadataService:
         if existing is not None:
             raise ValueError(f"Metadata type with slug '{slug}' already exists.")
 
+        if not fields:
+            raise ValueError("Metadata type must include at least one field")
+
         _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
+        order_expr = "id" if not _primary_keys else f"id, {', '.join(_primary_keys)}"
         _table = f"meta_{slug}"
         _cols = []
         for f in fields:
@@ -106,31 +110,42 @@ class MetadataService:
             else:
                 _cols.append(f"{_name} {_type} NOT NULL")
 
-        query = f"""
-        CREATE TABLE {self.storage._qualified_table_name(_table)} (
-            id String NOT NULL,
-            ref String NOT NULL,
-            hash String NOT NULL,
-            created_at DateTime DEFAULT now() NOT NULL,
-            updated_at DateTime DEFAULT now() NOT NULL,
-            tag Array(LowCardinality(String)), 
-            policy_level LowCardinality(String) NOT NULL,
-            policy_scope Array(LowCardinality(String)) NOT NULL,
-            policy_originator LowCardinality(String) NOT NULL,
-            {",\n".join(_cols)},
-            ext JSON
-        )
-        ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
-        ORDER BY (id, {', '.join(_primary_keys)})
-        PRIMARY KEY (id, {', '.join(_primary_keys)})
-        PARTITION BY created_at;
-        """
+        table_exists = await self.storage._table_exists(_table)
+        if not table_exists:
+            query = f"""
+            CREATE TABLE {self.storage._qualified_table_name(_table)} (
+                id String NOT NULL,
+                ref String NOT NULL,
+                hash String NOT NULL,
+                created_at DateTime DEFAULT now() NOT NULL,
+                updated_at DateTime DEFAULT now() NOT NULL,
+                tag Array(LowCardinality(String)), 
+                policy_level LowCardinality(String) NOT NULL,
+                policy_scope Array(LowCardinality(String)) NOT NULL,
+                policy_originator LowCardinality(String) NOT NULL,
+                {",\n".join(_cols)},
+                ext JSON
+            )
+            ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
+            ORDER BY ({order_expr})
+            PRIMARY KEY ({order_expr})
+            PARTITION BY created_at;
+            """
 
-        try:
-            await self.client.command(query)
-        except Exception as e:
-            logger.exception(f"Failed to create metadata table for type '{slug}': {e}")
-            raise Exception(f"Failed to create metadata table for type '{slug}': {e}")
+            try:
+                await self.client.command(query)
+            except Exception as e:
+                logger.exception(
+                    f"Failed to create metadata table for type '{slug}': {e}"
+                )
+                raise Exception(
+                    f"Failed to create metadata table for type '{slug}': {e}"
+                )
+        else:
+            logger.warning(
+                "Metadata table '%s' already exists without definition; reusing existing table",
+                _table,
+            )
 
         try:
             await self.client.insert(
@@ -304,7 +319,11 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
-        record["id"] = "::".join([record[i] for i in definition["identifier"]])
+        identifier = definition.get("identifier") or []
+        if identifier:
+            record["id"] = "::".join([record[i] for i in identifier])
+        elif "id" not in record:
+            raise ValueError("'id' is required when metadata type has no identifier")
 
         new_hash = compute_record_hash(record)
 

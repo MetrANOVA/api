@@ -135,19 +135,19 @@ def test_clickhouse_create_and_schema_flow_with_hyphen_slug(monkeypatch):
     assert success is True
     assert "successfully created" in message
     assert any(
-        "CREATE TABLE `metranova`.`data_interface-traffic`" in query
+        "CREATE TABLE `metranova`.`data_interface_traffic`" in query
         for query in storage.client.command_calls
     )
     assert any(
-        "CREATE TABLE `metranova`.`meta_interface-traffic`" in query
+        "CREATE TABLE `metranova`.`meta_interface_traffic`" in query
         for query in storage.client.command_calls
     )
 
-    by_slug = asyncio.run(storage.find_resource_type_by_slug("interface-traffic"))
+    by_slug = asyncio.run(storage.find_resource_type_by_slug("interface_traffic"))
     assert by_slug is not None
-    assert by_slug["slug"] == "interface-traffic"
+    assert by_slug["slug"] == "interface_traffic"
 
-    schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface-traffic"))
+    schema = asyncio.run(storage.find_resource_type_schema_by_slug("interface_traffic"))
     assert schema is not None
     assert schema["columns"][0]["name"] == "collector_id"
 
@@ -175,7 +175,7 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
 
     success, message = asyncio.run(
         storage.update_resource_type(
-            slug="ip-address",
+            slug="ip_address",
             fields=[CollectionField("hostname", "String", True)],
         )
     )
@@ -183,14 +183,14 @@ def test_clickhouse_update_resource_type_integration(monkeypatch):
     assert success is True
     assert "__v2" in message
     assert any(
-        "ALTER TABLE" in query and "ip-address" in query
+        "ALTER TABLE" in query and "ip_address" in query
         for query in storage.client.command_calls
     )
 
     all_rows = asyncio.run(storage.find_all_resource_types())
     assert all_rows is not None
     assert len(all_rows) == 2
-    assert all_rows[-1]["slug"] == "ip-address"
+    assert all_rows[-1]["slug"] == "ip_address"
 
 
 def test_clickhouse_create_resource_type_rejects_duplicate_slug(monkeypatch):

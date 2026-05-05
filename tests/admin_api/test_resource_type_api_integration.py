@@ -259,6 +259,35 @@ def test_type_api_create_returns_422_for_invalid_ttl(api_client):
     assert "ttl" in str(response.json()).lower()
 
 
+def test_type_api_create_accepts_missing_meta_fields(api_client):
+    client, fake_storage = api_client
+
+    response = client.post(
+        "/type/",
+        json={
+            "name": "Interface Traffic",
+            "data_fields": [
+                {
+                    "field_name": "if_name",
+                    "field_type": "string",
+                    "nullable": False,
+                },
+                {
+                    "field_name": "timestamp",
+                    "field_type": "datetime64",
+                    "nullable": False,
+                },
+            ],
+            "identifier": ["if_name", "timestamp"],
+            "ttl": "365 DAY",
+        },
+    )
+
+    assert response.status_code == 200
+    assert fake_storage.created_payload is not None
+    assert fake_storage.created_payload["meta_fields"] == []
+
+
 def test_type_api_create_ignores_slug_in_request_body(api_client):
     client, _ = api_client
 
@@ -392,7 +421,7 @@ def test_type_api_batch_meta_only_definition_uses_metadata_service(
     async def fake_create_metadata_type(self, name, identifier, fields):
         called["value"] = True
         assert name == "POP"
-        assert identifier == ["pop_id"]
+        assert identifier == []
         assert len(fields) == 1
         assert fields[0].name == "pop_id"
 
@@ -414,7 +443,6 @@ def test_type_api_batch_meta_only_definition_uses_metadata_service(
                             "nullable": False,
                         }
                     ],
-                    "identifier": ["pop_id"],
                 }
             ]
         },
@@ -426,6 +454,28 @@ def test_type_api_batch_meta_only_definition_uses_metadata_service(
     assert [item["slug"] for item in payload["created"]] == ["pop"]
     assert payload["updated"] == []
     assert payload["failed"] == []
+
+
+def test_type_api_batch_definition_requires_data_or_meta_fields(api_client):
+    client, _ = api_client
+
+    response = client.post(
+        "/type/batch",
+        json={
+            "definitions": [
+                {
+                    "name": "POP",
+                    "identifier": ["pop_id"],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert (
+        "at least one of data_fields or meta_fields is required"
+        in str(response.json()).lower()
+    )
 
 
 def test_type_api_batch_requires_ttl_when_data_fields_provided(api_client):
