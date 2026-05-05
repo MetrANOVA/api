@@ -256,11 +256,11 @@ class Clickhouse(StorageEngine):
                 )
 
         # Verify all identifier fields are present in meta fields
-        meta_field_names = {f.name for f in normalized_meta}
-        missing = [key for key in identifier if key not in meta_field_names]
-        if missing:
-            logger.error(f"Identifier fields missing from meta fields: {missing}")
-            return False, f"identifier fields not found in meta fields: {missing}"
+        # meta_field_names = {f.name for f in normalized_meta}
+        # missing = [key for key in identifier if key not in meta_field_names]
+        # if missing:
+        #     logger.error(f"Identifier fields missing from meta fields: {missing}")
+        #     return False, f"identifier fields not found in meta fields: {missing}"
 
         data_fields_tuple = [
             (f.field_name, f.field_type, f.nullable) for f in data_fields
@@ -293,25 +293,26 @@ class Clickhouse(StorageEngine):
                 logger.exception(f"Error creating data table for '{slug}': {e}")
                 return False, "Error during data table creation"
 
-        meta_table_name = f"meta_{slug}"
-        meta_table_exists = await self._table_exists(meta_table_name)
-        if meta_table_exists:
-            logger.warning(
-                "Meta table '%s' already exists without definition; reusing existing table",
-                meta_table_name,
-            )
-        else:
-            try:
-                # Reference-type fields are logical; skip them in the physical DDL
-                physical_meta_fields = [
-                    MetadataField(name=f.name, type=f.type, nullable=f.nullable)
-                    for f in meta_fields
-                    if f.type.lower() != "reference"
-                ]
-                await self.create_meta_table(slug, physical_meta_fields, identifier)
-            except Exception as e:
-                logger.exception(f"Error creating meta table for '{slug}': {e}")
-                return False, "Error during meta table creation"
+        if len(meta_fields) > 0:
+            meta_table_name = f"meta_{slug}"
+            meta_table_exists = await self._table_exists(meta_table_name)
+            if meta_table_exists:
+                logger.warning(
+                    "Meta table '%s' already exists without definition; reusing existing table",
+                    meta_table_name,
+                )
+            else:
+                try:
+                    # Reference-type fields are logical; skip them in the physical DDL
+                    physical_meta_fields = [
+                        MetadataField(name=f.name, type=f.type, nullable=f.nullable)
+                        for f in meta_fields
+                        if f.type.lower() != "reference"
+                    ]
+                    await self.create_meta_table(slug, physical_meta_fields, identifier)
+                except Exception as e:
+                    logger.exception(f"Error creating meta table for '{slug}': {e}")
+                    return False, "Error during meta table creation"
 
         column_names = [
             "id",

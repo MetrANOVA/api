@@ -83,7 +83,7 @@ types:
       - field_name: packet_count
         field_type: UInt64
         nullable: false
-    ttl: toIntervalDay(30)
+    ttl: 30 DAY
     identifier:
       - src_as_id
       - dst_as_id
