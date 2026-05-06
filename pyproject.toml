@@ -34,3 +34,13 @@ packages = ["src/admin_api"]
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
+
+[tool.black]
+force-exclude = '''
+/(
+    packages/pipeline/*
+)/
+'''
+
+[tool.fastapi]
+entrypoint = "admin_api.app:app"

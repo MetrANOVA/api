@@ -8,7 +8,6 @@ from .base import StorageEngine, CollectionField, CollectionType
 from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -317,8 +316,7 @@ class Clickhouse(StorageEngine):
             return None
 
         try:
-            result = await self.client.query(
-                f"""
+            result = await self.client.query(f"""
                 SELECT
                     id,
                     ref,
@@ -332,8 +330,7 @@ class Clickhouse(StorageEngine):
                     is_replicated,
                     updated_at
                 FROM {self.database}.definition
-                """
-            )
+                """)
             column_names = [
                 "id",
                 "ref",
@@ -486,7 +483,9 @@ class Clickhouse(StorageEngine):
                 col += " NOT NULL"
             field_columns.append(col)
 
-        safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
+        safe_primary_keys = ["insert_time"] + [
+            self._quoted_identifier(key) for key in primary_key
+        ]
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause()
@@ -680,7 +679,7 @@ class Clickhouse(StorageEngine):
             else:
                 try:
                     exists = int(first_value) == 1
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
 
@@ -691,8 +690,7 @@ class Clickhouse(StorageEngine):
 
         # TODO: Consider ENGINE type for this table. Maybe it should always be a
         # MergeTree?
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {definition_table}{on_cluster_clause}
             (
                 id String,
@@ -719,8 +717,7 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY ref
-        """
-        )
+        """)
 
     async def _get_ch_types(self):
         names = await self.client.query("SELECT name FROM system.data_type_families")
@@ -756,8 +753,7 @@ class Clickhouse(StorageEngine):
         return f" ON CLUSTER '{safe_cluster_name}'"
 
     async def get_cluster_info(self):
-        result = await self.client.query(
-            """
+        result = await self.client.query("""
             SELECT
                 cluster,
                 shard_num,
@@ -768,8 +764,7 @@ class Clickhouse(StorageEngine):
             FROM system.clusters
             WHERE is_local = 0
             ORDER BY cluster, shard_num, replica_num
-        """
-        )
+        """)
 
         rows = result.result_rows
         if not rows:
@@ -819,7 +814,7 @@ class Clickhouse(StorageEngine):
             else:
                 try:
                     exists = int(first_value) == 1
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
         if exists:
@@ -827,8 +822,7 @@ class Clickhouse(StorageEngine):
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
             (
                 id String,                -- Stable identifier (e.g., 'trans_interface_std')
@@ -843,8 +837,7 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (ref);
-        """
-        )
+        """)
 
     async def ensure_transformer_column_table(self):
         if not await self.is_connected():
@@ -868,14 +861,13 @@ class Clickhouse(StorageEngine):
             else:
                 try:
                     exists = int(first_value) == 1
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
 
         on_cluster_clause = await self._get_on_cluster_clause()
 
-        await self.client.command(
-            f"""
+        await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
             (
                 id String,
@@ -891,5 +883,4 @@ class Clickhouse(StorageEngine):
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
-        """
-        )
+        """)
