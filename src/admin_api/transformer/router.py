@@ -35,8 +35,8 @@ async def create_transformer(
             )
 
         return data
-    except:
-        raise HTTPException(status_code=500, detail="Error creating transformer")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating transformer: {e}")
 
 
 @router.get("/", tags=["transformer"])

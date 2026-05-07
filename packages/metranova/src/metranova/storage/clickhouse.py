@@ -507,7 +507,6 @@ class Clickhouse(StorageEngine):
         TTL insert_time + INTERVAL {ttl};
         """
 
-        logger.info(query)
         try:
             await self.client.command(query)
         except Exception as e:
@@ -553,7 +552,6 @@ class Clickhouse(StorageEngine):
         PARTITION BY toYYYYMM(created_at);
         """
 
-        logger.info(query)
         try:
             return await self.client.command(query)
         except Exception as e:
@@ -730,7 +728,6 @@ class Clickhouse(StorageEngine):
             types = list(names.result_columns[0]) if names.result_columns else []
         else:
             types = []
-        logger.info(types)
         return types
 
     async def _get_on_cluster_clause(self) -> str:
