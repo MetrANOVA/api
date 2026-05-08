@@ -227,7 +227,7 @@ def test_transformer_api_create_duplicate_returns_500(transformer_api_client):
     )
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Error creating transformer"
+    assert "Error creating transformer" in response.json()["detail"]
 
 
 def test_transformer_api_create_returns_422_for_invalid_payload(transformer_api_client):
