@@ -70,6 +70,7 @@ RESERVED_COLUMNS = {
     "ref",
     "hash",
     "created_at",
+    "insert_time",
     "updated_at",
     "tag",
     "policy_level",
@@ -134,6 +135,7 @@ class MetadataService:
             ref String NOT NULL,
             hash String NOT NULL,
             created_at DateTime DEFAULT now() NOT NULL,
+            insert_time DateTime DEFAULT now() NOT NULL,
             updated_at DateTime DEFAULT now() NOT NULL,
             tag Array(LowCardinality(String)), 
             policy_level LowCardinality(String) NOT NULL,
@@ -145,7 +147,7 @@ class MetadataService:
         ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
         ORDER BY ({order_expr})
         PRIMARY KEY ({order_expr})
-        PARTITION BY created_at;
+        PARTITION BY insert_time;
         """
 
         try:
@@ -348,6 +350,7 @@ class MetadataService:
 
         time = datetime.now()
         record["created_at"] = time
+        record["insert_time"] = time
         record["updated_at"] = time
 
         await self.client.insert(
@@ -382,7 +385,8 @@ class MetadataService:
             )
 
         record["created_at"] = existing_record["created_at"]
-        record["updated_at"] = datetime.now()
+        record["insert_time"] = datetime.now()
+        record["updated_at"] = record["insert_time"]
 
         return await self.client.insert(
             database=self.storage.database,

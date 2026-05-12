@@ -179,7 +179,7 @@ async def update_metadata_version(
     """Update a specific version of a metadata record.
 
     Accepts a full record body, validates it, preserves the original created_at, and
-    inserts a new row with a fresh updated_at. Follows ClickHouse's append-only pattern.
+    inserts a new row with a fresh insert_time and updated_at. Follows ClickHouse's append-only pattern.
     """
     metadata = MetadataService(req.app.state.se)
 
