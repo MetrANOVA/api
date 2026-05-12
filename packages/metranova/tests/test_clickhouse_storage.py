@@ -140,6 +140,29 @@ def test_connect_creates_async_client_and_pings(monkeypatch):
     assert created["host"] == storage.host
     assert created["database"] == storage.database
     assert created["secure"] is True
+    assert storage.metadata_engine == "MergeTree"
+    assert storage.data_engine == "CoalescingMergeTree"
+
+
+def test_connect_uses_cluster_name_fallback_for_engine_selection(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    monkeypatch.setenv("CLICKHOUSE_CLUSTER_NAME", "cluster-a")
+    async_client = DummyAsyncClient()
+    async_client.query_result = []
+
+    async def fake_create_async_client(**kwargs):
+        return async_client
+
+    monkeypatch.setattr(
+        "metranova.storage.clickhouse.clickhouse_connect.create_async_client",
+        fake_create_async_client,
+    )
+
+    storage = Clickhouse()
+    asyncio.run(storage.connect())
+
+    assert storage.metadata_engine == "ReplicatedMergeTree"
+    assert storage.data_engine == "ReplicatedCoalescingMergeTree"
 
 
 def test_connect_uses_explicit_database_when_provided(monkeypatch):
@@ -218,6 +241,53 @@ def test_create_database_clustered_query(monkeypatch):
     )
 
 
+def test_get_cluster_info_prefers_configured_cluster_name(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    monkeypatch.setenv("CLICKHOUSE_CLUSTER_NAME", "cluster-b")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [
+        ("cluster-a", 1, 1, "host-a", "127.0.0.1", 9000),
+    ]
+
+    info = asyncio.run(storage.get_cluster_info(force_refresh=True))
+
+    assert info["mode"] == "clustered"
+    assert info["cluster_name"] == "cluster-b"
+
+
+def test_get_cluster_info_falls_back_to_configured_cluster_when_query_fails(
+    monkeypatch,
+):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    monkeypatch.setenv("CLICKHOUSE_CLUSTER_NAME", "cluster-a")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def failing_query(query, parameters=None):
+        raise RuntimeError("system.clusters is unavailable")
+
+    storage.client.query = failing_query
+
+    info = asyncio.run(storage.get_cluster_info(force_refresh=True))
+
+    assert info["mode"] == "clustered"
+    assert info["cluster_name"] == "cluster-a"
+
+
+def test_get_on_cluster_clause_raises_for_replicated_engine_without_cluster(
+    monkeypatch,
+):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    monkeypatch.delenv("CLICKHOUSE_CLUSTER_NAME", raising=False)
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = []
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(storage._get_on_cluster_clause("ReplicatedMergeTree"))
+
+
 def test_create_resource_type_inserts_definition_row(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
@@ -226,6 +296,8 @@ def test_create_resource_type_inserts_definition_row(monkeypatch):
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[0]], row_count=1)
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -283,6 +355,8 @@ def test_create_resource_type_normalizes_nested_field_types(monkeypatch):
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[0]], row_count=1)
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -336,6 +410,8 @@ def test_create_resource_type_returns_false_on_insert_error(monkeypatch):
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[0]], row_count=1)
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -376,6 +452,8 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[0]], row_count=1)
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -384,6 +462,11 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
         return ["String", "Float64", "DateTime64"]
 
     storage._get_ch_types = mock_get_ch_types
+
+    async def noop_ensure_definition_table():
+        return None
+
+    storage._ensure_definition_table = noop_ensure_definition_table
 
     async def failing_command(query):
         raise RuntimeError("DDL failed")
@@ -403,6 +486,44 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
 
     assert success[0] is False
     assert success[1] == "Error during data table creation"
+    assert len(storage.client.insert_calls) == 0
+
+
+def test_create_resource_type_fails_when_target_tables_already_exist(
+    monkeypatch,
+):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+
+    async def mock_query(query, parameters=None):
+        if "WHERE slug" in query:
+            return SimpleNamespace(result_rows=[])
+        if "EXISTS TABLE" in query:
+            return SimpleNamespace(result_rows=[[1]], row_count=1)
+        return SimpleNamespace(result_rows=[[1]], row_count=1)
+
+    storage.client.query = mock_query
+
+    async def mock_get_ch_types():
+        return ["String", "Float64", "DateTime64"]
+
+    storage._get_ch_types = mock_get_ch_types
+
+    success = asyncio.run(
+        storage.create_resource_type(
+            name="Interface Traffic",
+            slug="interface-traffic",
+            data_fields=[CollectionField("if_name", "String", True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
+            identifier=["if_name"],
+            ttl="365 DAY",
+        )
+    )
+
+    assert success[0] is False
+    assert success[1] == "Data table 'data_interface-traffic' already exists"
+    assert len(storage.client.command_calls) == 0
     assert len(storage.client.insert_calls) == 0
 
 

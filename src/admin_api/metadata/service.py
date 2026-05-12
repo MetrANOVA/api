@@ -3,10 +3,20 @@ import json
 import logging
 import re
 
+from typing import TYPE_CHECKING
+
+from typing import TYPE_CHECKING
+
 from datetime import date, datetime
 from pydantic import BaseModel, model_validator, create_model
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from metranova.storage.clickhouse import Clickhouse
+
+if TYPE_CHECKING:
+    from metranova.storage.clickhouse import Clickhouse
 
 
 def slugify(value: str) -> str:
@@ -95,8 +105,16 @@ class MetadataService:
         if existing is not None:
             raise ValueError(f"Metadata type with slug '{slug}' already exists.")
 
-        _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
         _table = f"meta_{slug}"
+        table_exists = await self.storage._table_exists(_table)
+        if table_exists:
+            raise ValueError(f"Metadata table '{_table}' already exists.")
+
+        if not fields:
+            raise ValueError("Metadata type must include at least one field")
+
+        _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
+        order_expr = "id" if not _primary_keys else f"id, {', '.join(_primary_keys)}"
         _cols = []
         for f in fields:
             _name = self.storage._quoted_identifier(f.name)
@@ -106,8 +124,12 @@ class MetadataService:
             else:
                 _cols.append(f"{_name} {_type} NOT NULL")
 
+        on_cluster_clause = await self.storage._get_on_cluster_clause(
+            self.storage.metadata_engine
+        )
+
         query = f"""
-        CREATE TABLE {self.storage._qualified_table_name(_table)} (
+        CREATE TABLE {self.storage._qualified_table_name(_table)}{on_cluster_clause} (
             id String NOT NULL,
             ref String NOT NULL,
             hash String NOT NULL,
@@ -121,8 +143,8 @@ class MetadataService:
             ext JSON
         )
         ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
-        ORDER BY (id, {', '.join(_primary_keys)})
-        PRIMARY KEY (id, {', '.join(_primary_keys)})
+        ORDER BY ({order_expr})
+        PRIMARY KEY ({order_expr})
         PARTITION BY created_at;
         """
 
