@@ -372,9 +372,9 @@ class MetadataService:
 
         existing = await self.client.query(
             f"""
-            SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, updated_at) IN (
-                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, created_at)
-            ) ORDER BY created_at DESC
+            SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, insert_time) IN (
+                SELECT id, max(insert_time) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, insert_time)
+            ) ORDER BY insert_time DESC
             """,
             parameters=[record["ref"]],
         )
@@ -398,9 +398,9 @@ class MetadataService:
     async def get_metadata_record_history(self, slug: str, _id: str) -> list[dict]:
         result = await self.client.query(
             f"""
-            SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
-                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
-            ) ORDER BY created_at DESC
+            SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, insert_time) IN (
+                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, insert_time)
+            ) ORDER BY insert_time DESC
             """,
             parameters=[_id],
         )
@@ -411,10 +411,10 @@ class MetadataService:
             """
             SELECT t.* FROM {db:Identifier}.{table:Identifier} t
             INNER JOIN (
-                SELECT id, max(created_at) AS max_created_at
+                SELECT id, max(insert_time) AS max_insert_time
                 FROM {db:Identifier}.{table:Identifier}
                 GROUP BY id
-            ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
+            ) latest ON t.id = latest.id AND t.insert_time = latest.max_insert_time
             """,
             parameters={"db": "metranova", "table": f"meta_{slug}"},
         )
