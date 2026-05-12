@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -49,6 +50,21 @@ class DummyStorage:
 class ClusteredDummyStorage(DummyStorage):
     async def _get_on_cluster_clause(self, engine_name: str | None = None) -> str:
         return " ON CLUSTER 'cluster-a'"
+
+
+class QueryingDummyClient(DummyClient):
+    def __init__(self, query_result=None):
+        super().__init__()
+        self.query_calls = []
+        self.query_result = query_result or []
+
+    async def query(self, query, parameters=None):
+        self.query_calls.append((query, parameters))
+        rows = self.query_result
+        return SimpleNamespace(
+            row_count=len(rows),
+            named_results=lambda: iter(rows),
+        )
 
 
 def test_create_metadata_type_fails_when_table_already_exists():
@@ -143,3 +159,39 @@ def test_create_metadata_type_rejects_empty_fields():
         )
 
     assert "at least one field" in str(exc_info.value).lower()
+
+
+def test_get_metadata_records_uses_created_at_for_latest_version_lookup():
+    storage = DummyStorage(table_exists=False)
+    storage.client = QueryingDummyClient()
+    service = MetadataService(storage)
+
+    asyncio.run(service.get_metadata_records("interface-traffic"))
+
+    query, parameters = storage.client.query_calls[0]
+    assert "max(created_at) AS max_created_at" in query
+    assert "t.created_at = latest.max_created_at" in query
+    assert parameters == {"db": "metranova", "table": "meta_interface-traffic"}
+
+
+def test_create_metadata_record_does_not_explicitly_insert_insert_time():
+    storage = DummyStorage(table_exists=False)
+    storage.client = QueryingDummyClient()
+    service = MetadataService(storage)
+
+    result = asyncio.run(
+        service.create_metadata_record(
+            {"slug": "interface-traffic", "identifier": ["node", "intf"]},
+            {
+                "node": "router-1",
+                "intf": "xe-0/0/0",
+                "insert_time": "should-be-ignored",
+            },
+        )
+    )
+
+    insert_call = storage.client.insert_calls[0]
+    assert result["unchanged"] is False
+    assert "insert_time" not in insert_call["column_names"]
+    assert "created_at" in insert_call["column_names"]
+    assert "updated_at" in insert_call["column_names"]

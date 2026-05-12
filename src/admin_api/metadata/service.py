@@ -330,6 +330,7 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
+        record = record.copy()
         record["id"] = "::".join([record[i] for i in definition["identifier"]])
 
         new_hash = compute_record_hash(record)
@@ -347,10 +348,12 @@ class MetadataService:
         record["hash"] = new_hash
         record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
+        record.pop("insert_time", None)
+        record.pop("created_at", None)
+        record.pop("updated_at", None)
 
         time = datetime.now()
         record["created_at"] = time
-        record["insert_time"] = time
         record["updated_at"] = time
 
         await self.client.insert(
@@ -366,15 +369,19 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
+        record = record.copy()
         record["hash"] = compute_record_hash(record)
         record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
+        record.pop("insert_time", None)
+        record.pop("created_at", None)
+        record.pop("updated_at", None)
 
         existing = await self.client.query(
             f"""
-            SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, insert_time) IN (
-                SELECT id, max(insert_time) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, insert_time)
-            ) ORDER BY insert_time DESC
+            SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, updated_at) IN (
+                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, created_at)
+            ) ORDER BY created_at DESC
             """,
             parameters=[record["ref"]],
         )
@@ -385,8 +392,7 @@ class MetadataService:
             )
 
         record["created_at"] = existing_record["created_at"]
-        record["insert_time"] = datetime.now()
-        record["updated_at"] = record["insert_time"]
+        record["updated_at"] = datetime.now()
 
         return await self.client.insert(
             database=self.storage.database,
@@ -398,9 +404,9 @@ class MetadataService:
     async def get_metadata_record_history(self, slug: str, _id: str) -> list[dict]:
         result = await self.client.query(
             f"""
-            SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, insert_time) IN (
-                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, insert_time)
-            ) ORDER BY insert_time DESC
+            SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
+                SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
+            ) ORDER BY created_at DESC
             """,
             parameters=[_id],
         )
@@ -411,10 +417,10 @@ class MetadataService:
             """
             SELECT t.* FROM {db:Identifier}.{table:Identifier} t
             INNER JOIN (
-                SELECT id, max(insert_time) AS max_insert_time
+                SELECT id, max(created_at) AS max_created_at
                 FROM {db:Identifier}.{table:Identifier}
                 GROUP BY id
-            ) latest ON t.id = latest.id AND t.insert_time = latest.max_insert_time
+            ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
             """,
             parameters={"db": "metranova", "table": f"meta_{slug}"},
         )
