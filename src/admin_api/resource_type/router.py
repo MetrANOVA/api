@@ -175,7 +175,7 @@ async def get_identifiers_for_type(
         raise HTTPException(
             status_code=404, detail=f"Resource type {slug} does not exist"
         )
-    ids = resource_type.get("identifier", [])
+    ids = ["id"] + resource_type.get("identifier", [])
     is_data = len(resource_type.get("data_fields", [])) > 0
     if is_data:
         table_type = "data"
