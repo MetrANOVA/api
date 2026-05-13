@@ -195,7 +195,7 @@ class MetadataService:
             f"DROP TABLE IF EXISTS {self.storage._qualified_table_name(meta_table)}"
         )
         await self.client.command(
-            f"DELETE FROM {self.storage._qualified_table_name('definition')} WHERE slug = %s AND type = 'metadata'",
+            f"DELETE FROM {self.storage._qualified_table_name('definition')} WHERE slug = %s AND length(meta_fields) > 0",
             parameters=[slug],
         )
 
@@ -255,7 +255,7 @@ class MetadataService:
         existing_ref = (
             await self.client.query(
                 f"SELECT ref FROM {self.storage._qualified_table_name('definition')}"
-                + " WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
+                + " WHERE slug = {slug:String} AND length(meta_fields) > 0 ORDER BY updated_at DESC LIMIT 1",
                 parameters={"slug": slug},
             )
         ).first_row[0]
@@ -293,7 +293,7 @@ class MetadataService:
     async def get_metadata_type(self, slug):
         result = await self.client.query(
             f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')}"
-            + " WHERE type = 'metadata' and slug = {slug:String}",
+            + " WHERE length(meta_fields) > 0 and slug = {slug:String}",
             parameters={"slug": slug},
         )
         if result.row_count == 0:
@@ -321,7 +321,7 @@ class MetadataService:
 
     async def get_metadata_types(self):
         result = await self.client.query(
-            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE type = 'metadata'"
+            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE length(meta_fields) > 0"
         )
         return list(result.named_results())
 
@@ -331,7 +331,7 @@ class MetadataService:
         table = f"meta_{definition['slug']}"
 
         record = record.copy()
-        record["id"] = "::".join([record[i] for i in definition["identifier"]])
+        record["id"] = "::".join([str(record[i]) for i in definition["identifier"]])
 
         new_hash = compute_record_hash(record)
 
