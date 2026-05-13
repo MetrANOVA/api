@@ -189,7 +189,7 @@ async def update_metadata_version(
             status_code=404, detail=f"Metadata type '{slug}' not found."
         )
 
-    expected_mid = "::".join([record[i] for i in type_def["identifier"]])
+    expected_mid = "::".join([str(record[i]) for i in type_def["identifier"]])
     if mid != expected_mid:
         raise HTTPException(
             status_code=400, detail=f"Metadata primary keys cannot be modified."
