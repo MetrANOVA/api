@@ -415,12 +415,17 @@ class MetadataService:
     async def get_metadata_records(self, slug: str) -> list[dict]:
         result = await self.client.query(
             """
-            SELECT t.* FROM {db:Identifier}.{table:Identifier} t
-            INNER JOIN (
-                SELECT id, max(created_at) AS max_created_at
-                FROM {db:Identifier}.{table:Identifier}
-                GROUP BY id
-            ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
+            SELECT *
+            FROM (
+                SELECT
+                    t.*,
+                    row_number() OVER (
+                        PARTITION BY id
+                        ORDER BY insert_time DESC, updated_at DESC, created_at DESC
+                    ) AS _rn
+                FROM {db:Identifier}.{table:Identifier} t
+            )
+            WHERE _rn = 1
             """,
             parameters={"db": "metranova", "table": f"meta_{slug}"},
         )
