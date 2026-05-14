@@ -335,7 +335,7 @@ class MetadataService:
         record = record.copy()
         idents = [record[i] for i in definition["identifier"]]
         idents = ["_".join(i) for i in idents if isinstance(i, list)]
-        record["id"] = "::".join([str(record[i]) for i in idents])
+        record["id"] = "::".join([str(i) for i in idents])
 
         new_hash = compute_record_hash(record)
 
