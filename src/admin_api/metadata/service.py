@@ -255,7 +255,7 @@ class MetadataService:
         existing_ref = (
             await self.client.query(
                 f"SELECT ref FROM {self.storage._qualified_table_name('definition')}"
-                + " WHERE slug = {slug:String} AND length(meta_fields) > 0 ORDER BY insert_time DESC LIMIT 1",
+                + " WHERE slug = {slug:String} AND length(meta_fields) > 0 ORDER BY updated_at DESC LIMIT 1",
                 parameters={"slug": slug},
             )
         ).first_row[0]
@@ -381,7 +381,7 @@ class MetadataService:
             f"""
             SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, updated_at) IN (
                 SELECT id, max(updated_at) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, created_at)
-            ) ORDER BY insert_time DESC
+            ) ORDER BY updated_at DESC
             """,
             parameters=[record["ref"]],
         )
@@ -406,7 +406,7 @@ class MetadataService:
             f"""
             SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
                 SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
-            ) ORDER BY insert_time DESC
+            ) ORDER BY updated_at DESC
             """,
             parameters=[_id],
         )
@@ -421,7 +421,7 @@ class MetadataService:
                     t.*,
                     row_number() OVER (
                         PARTITION BY id
-                        ORDER BY insert_time DESC, updated_at DESC, created_at DESC
+                        ORDER BY updated_at DESC, updated_at DESC, created_at DESC
                     ) AS _rn
                 FROM {db:Identifier}.{table:Identifier} t
             )
