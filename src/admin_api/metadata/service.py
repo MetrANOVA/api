@@ -41,6 +41,8 @@ CH_TYPE_MAP: dict[str, type] = {
     "Date": date,
     "DateTime": datetime,
     "DateTime64": datetime,
+    "Array": list,
+    "IPv6": str,
 }
 
 
