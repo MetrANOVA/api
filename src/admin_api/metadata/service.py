@@ -293,7 +293,7 @@ class MetadataService:
     async def get_metadata_type(self, slug):
         result = await self.client.query(
             f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')}"
-            + " WHERE length(meta_fields) > 0 and slug = {slug:String}",
+            + " WHERE length(meta_fields) > 0 and slug = {slug:String} ORDER BY updated_at DESC LIMIT 1",
             parameters={"slug": slug},
         )
         if result.row_count == 0:
