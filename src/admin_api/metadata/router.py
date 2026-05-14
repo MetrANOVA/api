@@ -141,12 +141,14 @@ async def create_metadata(slug: str, req: Request):
     try:
         await metadata.validate_metadata_record(type_def, record)
     except ValueError as e:
+        logger.exception(e)
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
         result = await metadata.create_metadata_record(type_def, record)
         return {"type": slug, **result}
     except Exception as e:
+        logger.exception(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 
