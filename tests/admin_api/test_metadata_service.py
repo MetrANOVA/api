@@ -195,3 +195,28 @@ def test_create_metadata_record_does_not_explicitly_insert_insert_time():
     assert "insert_time" not in insert_call["column_names"]
     assert "created_at" in insert_call["column_names"]
     assert "updated_at" in insert_call["column_names"]
+
+
+def test_create_metadata_record_uses_scalar_identifier_field_for_id():
+    storage = DummyStorage(table_exists=False)
+    storage.client = QueryingDummyClient()
+    service = MetadataService(storage)
+
+    result = asyncio.run(
+        service.create_metadata_record(
+            {"slug": "pop", "identifier": ["pop_id"]},
+            {
+                "id": "341",
+                "pop_id": 341,
+                "name": "BB: Indianapolis - IU (roadm)",
+                "locality": "ICTC",
+                "type": "BB",
+            },
+        )
+    )
+
+    assert result["id"] == "341"
+
+    insert_call = storage.client.insert_calls[0]
+    id_index = insert_call["column_names"].index("id")
+    assert insert_call["data"][0][id_index] == "341"

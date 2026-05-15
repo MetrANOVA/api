@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, Body, Request, HTTPException
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
-from admin_api.metadata.service import MetadataService, slugify
+from admin_api.metadata.service import MetadataService, build_metadata_id, slugify
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
@@ -191,9 +191,7 @@ async def update_metadata_version(
             status_code=404, detail=f"Metadata type '{slug}' not found."
         )
 
-    idents = [record[i] for i in type_def["identifier"]]
-    idents = ["_".join(i) for i in idents if isinstance(i, list)]
-    expected_mid = "::".join([str(i) for i in idents])
+    expected_mid = build_metadata_id(record, type_def["identifier"])
     if mid != expected_mid:
         raise HTTPException(
             status_code=400, detail=f"Metadata primary keys cannot be modified."

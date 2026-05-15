@@ -88,6 +88,25 @@ def compute_record_hash(record: dict) -> str:
     return hashlib.md5(serialized.encode()).hexdigest()
 
 
+def build_metadata_id(record: dict[str, any], identifier: list[str]) -> str:
+    """Build the metadata record id from configured identifier fields."""
+    parts: list[str] = []
+    for field in identifier:
+        if field not in record:
+            raise ValueError(f"Identifier field '{field}' is required.")
+
+        value = record[field]
+        if value is None:
+            raise ValueError(f"Identifier field '{field}' cannot be null.")
+
+        if isinstance(value, list):
+            parts.append("::".join(str(item) for item in value))
+        else:
+            parts.append(str(value))
+
+    return "::".join(parts)
+
+
 class MetadataService:
     """Service class for handling metadata operations."""
 
@@ -333,9 +352,7 @@ class MetadataService:
         table = f"meta_{definition['slug']}"
 
         record = record.copy()
-        idents = [record[i] for i in definition["identifier"]]
-        idents = ["_".join(i) for i in idents if isinstance(i, list)]
-        record["id"] = "::".join([str(i) for i in idents])
+        record["id"] = build_metadata_id(record, definition["identifier"])
 
         new_hash = compute_record_hash(record)
 
