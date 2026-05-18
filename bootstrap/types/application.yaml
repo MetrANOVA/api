@@ -1,0 +1,16 @@
+types:
+  application:
+    meta_fields:
+      - field_name: protocol
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: port_range_min
+        field_type: UInt16
+        nullable: false
+      - field_name: port_range_max
+        field_type: UInt16
+        nullable: false
+    identifier:
+      - protocol
+      - port_range_min
+      - port_range_max

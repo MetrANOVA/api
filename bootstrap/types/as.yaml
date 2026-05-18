@@ -1,0 +1,12 @@
+types:
+  as:
+    meta_fields:
+      - field_name: name
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: organization_id
+        field_type: String
+        nullable: false
+      - field_name: organization_ref
+        field_type: String
+        nullable: true

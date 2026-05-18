@@ -1,0 +1,26 @@
+types:
+  cpu:
+    meta_fields:
+      - field_name: name
+        field_type: String
+      - field_name: node
+        field_type: String
+      - field_name: software_vendor
+        field_type: String
+      - field_name: device_id
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: device_ref
+        field_type: String
+        nullable: true
+    data_fields:
+      - field_name: cpu
+        field_type: Float64
+      - field_name: name
+        field_type: String
+      - field_name: node
+        field_type: String
+    ttl: INTERVAL 365 DAY
+    identifier:
+      - name
+      - node
