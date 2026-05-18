@@ -1,7 +1,10 @@
 import pytest
 from pydantic import ValidationError
 
-from admin_api.resource_type.model import CreateResourceTypeRequest
+from admin_api.resource_type.model import (
+    BatchResourceTypeDefinitionRequest,
+    CreateResourceTypeRequest,
+)
 
 
 def build_valid_payload():
@@ -27,6 +30,16 @@ def test_create_resource_type_request_accepts_valid_payload():
     assert len(model.meta_fields) == 2
 
 
+def test_create_resource_type_request_accepts_payload_without_meta_fields():
+    payload = build_valid_payload()
+    payload.pop("meta_fields")
+
+    model = CreateResourceTypeRequest(**payload)
+    assert model.name == "Interface Traffic"
+    assert len(model.data_fields) == 2
+    assert model.meta_fields == []
+
+
 def test_create_resource_type_request_rejects_missing_primary_key_field():
     payload = build_valid_payload()
     payload["identifier"] = ["missing_field"]
@@ -44,6 +57,17 @@ def test_create_resource_type_request_rejects_duplicate_field_names():
 
     with pytest.raises(ValidationError):
         CreateResourceTypeRequest(**payload)
+
+
+def test_create_resource_type_request_rejects_identifier_not_in_data_fields_without_meta():
+    payload = build_valid_payload()
+    payload.pop("meta_fields")
+    payload["identifier"] = ["missing_field"]
+
+    with pytest.raises(ValidationError) as exc_info:
+        CreateResourceTypeRequest(**payload)
+
+    assert "identifier fields must exist in data fields" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -107,3 +131,39 @@ def test_create_resource_type_request_rejects_invalid_ttl_formats(ttl):
     assert "ttl must be a valid ClickHouse interval format" in str(exc_info.value)
 
 
+def test_batch_definition_request_accepts_meta_only_definition():
+    model = BatchResourceTypeDefinitionRequest(
+        name="POP",
+        meta_fields=[
+            {"field_name": "pop_id", "field_type": "String", "nullable": False}
+        ],
+    )
+
+    assert model.data_fields == []
+    assert len(model.meta_fields) == 1
+    assert model.identifier == []
+
+
+def test_batch_definition_request_rejects_without_data_and_meta_fields():
+    with pytest.raises(ValidationError) as exc_info:
+        BatchResourceTypeDefinitionRequest(
+            name="POP",
+            identifier=["pop_id"],
+        )
+
+    assert "at least one of data_fields or meta_fields is required" in str(
+        exc_info.value
+    )
+
+
+def test_batch_definition_request_rejects_data_fields_without_identifier():
+    with pytest.raises(ValidationError) as exc_info:
+        BatchResourceTypeDefinitionRequest(
+            name="Interface Traffic",
+            data_fields=[
+                {"field_name": "host", "field_type": "String", "nullable": False}
+            ],
+            ttl="365 DAY",
+        )
+
+    assert "identifier is required when data_fields are provided" in str(exc_info.value)

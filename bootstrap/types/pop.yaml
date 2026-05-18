@@ -1,0 +1,17 @@
+types:
+  pop:
+    meta_fields:
+      - field_name: pop_id
+        field_type: Int32
+        nullable: false
+      - field_name: name
+        field_type: String
+        nullable: false
+      - field_name: locality
+        field_type: String
+        nullable: true
+      - field_name: type
+        field_type: String
+        nullable: true
+    identifier:
+      - pop_id

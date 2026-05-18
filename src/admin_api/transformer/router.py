@@ -1,12 +1,15 @@
 import logging
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .model import (
+    BatchCreateTransformerRequest,
     CreateTransformerRequest,
     UpdateTransformerRequest,
     CreateTransformerColumnRequest,
+    CreateTransformerWithColumnsRequest,
     UpdateTransformerColumnRequest,
 )
 from .service import TransformerService
@@ -14,6 +17,197 @@ from .service import TransformerService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["transformer"])
+
+
+def _normalize_transformer_id(name: str) -> str:
+    return name.lower().replace(" ", "_")
+
+
+def _normalize_config(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _column_changed(existing: dict, incoming: CreateTransformerColumnRequest) -> bool:
+    return any(
+        [
+            existing.get("target_column") != incoming.target_column,
+            existing.get("match_value") != incoming.match_value,
+            existing.get("vendor_match_field") != incoming.vendor_match_field,
+            existing.get("vendor_match_value") != incoming.vendor_match_value,
+            existing.get("operation") != incoming.operation,
+            _normalize_config(existing.get("config")) != incoming.config,
+            existing.get("default_value") != incoming.default_value,
+            existing.get("order") != incoming.order,
+        ]
+    )
+
+
+@router.post("/batch", tags=["transformer"])
+async def batch_create_or_update_transformers(
+    request: BatchCreateTransformerRequest,
+    service: TransformerService = Depends(),
+):
+    created = []
+    updated = []
+    failed = []
+
+    for item in request.transformers:
+        transformer_id = _normalize_transformer_id(item.name)
+
+        try:
+            exists, transformer = await service.get_transformer_by_id(transformer_id)
+            transformer_ref = None
+            transformer_updated = False
+            column_changes = False
+            created_item = False
+
+            if not exists:
+                created_ok, created_data = await service.create_transformer(
+                    name=item.name,
+                    definition_ref=item.definition_ref,
+                    description=item.description,
+                    match_field=item.match_field,
+                )
+                if not created_ok:
+                    failed.append(
+                        {
+                            "id": transformer_id,
+                            "name": item.name,
+                            "error": created_data.get("message", "Unknown error"),
+                        }
+                    )
+                    continue
+
+                transformer_ref = created_data["ref"]
+                created_item = True
+            else:
+                transformer_ref = transformer["ref"]
+                if transformer.get("definition_ref") != item.definition_ref:
+                    failed.append(
+                        {
+                            "id": transformer_id,
+                            "name": item.name,
+                            "error": "definition_ref updates are not supported for existing transformers",
+                        }
+                    )
+                    continue
+
+                if (
+                    transformer.get("name") != item.name
+                    or transformer.get("description") != item.description
+                    or transformer.get("match_field") != item.match_field
+                ):
+                    updated_ok, updated_data = await service.update_transformer(
+                        transformer_id=transformer_id,
+                        name=item.name,
+                        description=item.description,
+                        match_field=item.match_field,
+                    )
+                    if not updated_ok:
+                        failed.append(
+                            {
+                                "id": transformer_id,
+                                "name": item.name,
+                                "error": updated_data.get("message", "Unknown error"),
+                            }
+                        )
+                        continue
+
+                    transformer_ref = updated_data["ref"]
+                    transformer_updated = True
+
+            existing_columns = await service.get_transformer_columns(
+                transformer_ref=transformer_ref
+            )
+            existing_by_id = {column["id"]: column for column in existing_columns}
+
+            for column in item.columns:
+                existing_column = existing_by_id.get(column.id)
+                if existing_column is None:
+                    created_col_ok, created_col_data = (
+                        await service.create_transformer_column(
+                            id=column.id,
+                            transformer_ref=transformer_ref,
+                            target_column=column.target_column,
+                            match_value=column.match_value,
+                            vendor_match_field=column.vendor_match_field,
+                            vendor_match_value=column.vendor_match_value,
+                            operation=column.operation,
+                            config=column.config,
+                            default_value=column.default_value,
+                            order=column.order,
+                        )
+                    )
+                    if not created_col_ok:
+                        raise RuntimeError(
+                            created_col_data.get("message", "Unknown error")
+                        )
+                    column_changes = True
+                    continue
+
+                if _column_changed(existing_column, column):
+                    updated_col_ok, updated_col_data = (
+                        await service.update_transformer_column(
+                            transformer_ref=transformer_ref,
+                            column_id=column.id,
+                            target_column=column.target_column,
+                            match_value=column.match_value,
+                            vendor_match_field=column.vendor_match_field,
+                            vendor_match_value=column.vendor_match_value,
+                            operation=column.operation,
+                            config=column.config,
+                            default_value=column.default_value,
+                            order=column.order,
+                        )
+                    )
+                    if not updated_col_ok:
+                        raise RuntimeError(
+                            updated_col_data.get("message", "Unknown error")
+                        )
+                    column_changes = True
+
+            if created_item:
+                created.append(
+                    {
+                        "id": transformer_id,
+                        "name": item.name,
+                        "message": "Transformer created",
+                    }
+                )
+
+            if exists and (transformer_updated or column_changes):
+                updated.append(
+                    {
+                        "id": transformer_id,
+                        "name": item.name,
+                        "message": "Transformer updated",
+                    }
+                )
+        except Exception as e:
+            logger.exception(
+                "Batch transformer upsert failed for id '%s'",
+                transformer_id,
+            )
+            failed.append(
+                {
+                    "id": transformer_id,
+                    "name": item.name,
+                    "error": str(e),
+                }
+            )
+
+    return {
+        "created": created,
+        "updated": updated,
+        "failed": failed,
+    }
 
 
 @router.post("/", tags=["transformer"])
