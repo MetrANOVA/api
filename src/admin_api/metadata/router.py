@@ -16,7 +16,7 @@ router = APIRouter(tags=["metadata resources"])
 
 class CreateMetadataTypeReq(BaseModel):
     name: str
-    identifier: list[str] = []
+    identifier: list[str]
     fields: list[MetadataField]
 
 
