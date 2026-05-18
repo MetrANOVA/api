@@ -544,7 +544,9 @@ class Clickhouse(StorageEngine):
                 col += " NOT NULL"
             field_columns.append(col)
 
-        safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
+        safe_primary_keys = ["insert_time"] + [
+            self._quoted_identifier(key) for key in primary_key
+        ]
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause()

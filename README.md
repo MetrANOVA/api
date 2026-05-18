@@ -130,10 +130,95 @@ docker compose -f .devcontainer/docker-compose.yml down -v
 docker compose -f .devcontainer/docker-compose.yml up -d
 ```
 
-### Making sure stuff works
 
+## Notes
+
+### Demo Data Types
+
+```json
+{
+    "name": "interfacev2",
+    "meta_fields": [
+        {
+            "field_name": "node",
+            "field_type": "String",
+            "nullable": false
+        },
+        {
+            "field_name": "intf",
+            "field_type": "String",
+            "nullable": false
+        }
+    ],
+    "data_fields": [
+        {
+            "field_name": "oper_status",
+            "field_type": "Int64",
+            "nullable": true
+        },
+        {
+            "field_name": "tx_bytes",
+            "field_type": "Int64",
+            "nullable": false
+        },
+        {
+            "field_name": "rx_bytes",
+            "field_type": "Int64",
+            "nullable": false
+        },
+        {
+            "field_name": "node",
+            "field_type": "String",
+            "nullable": false
+        },
+        {
+            "field_name": "intf",
+            "field_type": "String",
+            "nullable": false
+        }
+    ],
+    "identifier": [
+      "node","intf"
+    ],
+    "ttl": "365 DAY"
+}
 ```
-/opt/kafka/bin/kafka-dump-log.sh \
---files /var/lib/kafka/data/metranova_snmp-0/00000000000000000000.log \
---print-data-log
+
+```json
+{
+    "name": "cpu",
+    "meta_fields": [
+        {
+            "field_name": "node",
+            "field_type": "String",
+            "nullable": false
+        },
+        {
+            "field_name": "cpu",
+            "field_type": "String",
+            "nullable": false
+        }
+    ],
+    "data_fields": [
+        {
+            "field_name": "cpu_total",
+            "field_type": "Int32",
+            "nullable": false
+        },
+        {
+            "field_name": "node",
+            "field_type": "String",
+            "nullable": false
+        },
+        {
+            "field_name": "cpu",
+            "field_type": "String",
+            "nullable": false
+        }
+    ],
+    "identifier": [
+      "node","cpu"
+    ],
+    "ttl": "365 DAY"
+}
 ```

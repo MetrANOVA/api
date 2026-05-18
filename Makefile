@@ -10,3 +10,6 @@ reload-pipeline:
 
 test:
 	uv run python bin/run-tests.py $(ARGS)
+
+rm-volumes:
+	docker volume rm api_devcontainer_clickhouse_data api_devcontainer_kafka_data api_devcontainer_grafana_data
