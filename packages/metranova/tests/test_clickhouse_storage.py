@@ -452,8 +452,12 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
-        if "EXISTS TABLE" in query:
-            return SimpleNamespace(result_rows=[[0]], row_count=1)
+        if "EXISTS TABLE `metranova`.`definition`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`data_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[0]])
+        if "EXISTS TABLE `metranova`.`meta_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[0]])
         return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
@@ -489,7 +493,7 @@ def test_create_resource_type_table_creation_failure_prevents_definition_insert(
     assert len(storage.client.insert_calls) == 0
 
 
-def test_create_resource_type_fails_when_target_tables_already_exist(
+def test_create_resource_type_reuses_existing_tables_and_inserts_definition(
     monkeypatch,
 ):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
@@ -499,9 +503,13 @@ def test_create_resource_type_fails_when_target_tables_already_exist(
     async def mock_query(query, parameters=None):
         if "WHERE slug" in query:
             return SimpleNamespace(result_rows=[])
-        if "EXISTS TABLE" in query:
-            return SimpleNamespace(result_rows=[[1]], row_count=1)
-        return SimpleNamespace(result_rows=[[1]], row_count=1)
+        if "EXISTS TABLE `metranova`.`definition`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`data_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        if "EXISTS TABLE `metranova`.`meta_interface-traffic`" in query:
+            return SimpleNamespace(result_rows=[[1]])
+        return SimpleNamespace(result_rows=[[1]])
 
     storage.client.query = mock_query
 
@@ -515,16 +523,16 @@ def test_create_resource_type_fails_when_target_tables_already_exist(
             name="Interface Traffic",
             slug="interface-traffic",
             data_fields=[CollectionField("if_name", "String", True)],
-            meta_fields=[MetadataField(name="if_name", type="String", nullable=True)],
+            meta_fields=[MetadataField(name="if_name", type="String", nullable=False)],
             identifier=["if_name"],
             ttl="365 DAY",
         )
     )
 
-    assert success[0] is False
-    assert success[1] == "Data table 'data_interface-traffic' already exists"
+    assert "successfully created" in success[1]
+    assert success[0] is True
     assert len(storage.client.command_calls) == 0
-    assert len(storage.client.insert_calls) == 0
+    assert len(storage.client.insert_calls) == 1
 
 
 def test_ensure_definition_table_skips_when_exists(monkeypatch):

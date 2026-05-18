@@ -1,0 +1,35 @@
+types:
+  organization:
+    meta_fields:
+      - field_name: name
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: type
+        field_type: Array(LowCardinality(String))
+        nullable: false
+      - field_name: city_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_code
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: continent_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_sub_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_sub_code
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: latitude
+        field_type: Float64
+        nullable: true
+      - field_name: longitude
+        field_type: Float64
+        nullable: true
+    identifier: []
+  

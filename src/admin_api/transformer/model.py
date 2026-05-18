@@ -27,6 +27,14 @@ class CreateTransformerColumnRequest(BaseModel):
     order: int = Field(default=1, ge=0)
 
 
+class CreateTransformerWithColumnsRequest(CreateTransformerRequest):
+    columns: list[CreateTransformerColumnRequest] = Field(default_factory=list)
+
+
+class BatchCreateTransformerRequest(BaseModel):
+    transformers: list[CreateTransformerWithColumnsRequest] = Field(min_length=1)
+
+
 class UpdateTransformerColumnRequest(BaseModel):
     target_column: Optional[str] = Field(default=None, min_length=1)
     match_value: Optional[str] = Field(default=None)

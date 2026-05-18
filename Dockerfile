@@ -17,6 +17,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY packages ./packages
 COPY src ./src
 COPY bin ./bin
+COPY bootstrap ./bootstrap
 
 RUN uv sync --frozen --all-packages
 

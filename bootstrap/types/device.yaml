@@ -1,0 +1,65 @@
+types:
+  device:
+    meta_fields:
+      - field_name: type
+        field_type: LowCardinality(String)
+        nullable: false
+      - field_name: loopback_ip
+        field_type: Array(IPv6)
+        nullable: false
+      - field_name: management_ip
+        field_type: Array(IPv6)
+        nullable: false
+      - field_name: hostname
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: location_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: location_type
+        field_type: Array(LowCardinality(Nullable(String)))
+        nullable: false
+      - field_name: city_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_code
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: continent_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_sub_name
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: country_sub_code
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: latitude
+        field_type: Float64
+        nullable: true
+      - field_name: longitude
+        field_type: Float64
+        nullable: true
+      - field_name: manufacturer
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: model
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: network
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: os
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: role
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+      - field_name: state
+        field_type: LowCardinality(Nullable(String))
+        nullable: false
+
+      

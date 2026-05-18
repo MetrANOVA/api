@@ -127,6 +127,10 @@ class MetadataService:
         if existing is not None:
             raise ValueError(f"Metadata type with slug '{slug}' already exists.")
 
+        if not fields:
+            raise ValueError("Metadata type must include at least one field")
+
+        _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
         _table = f"meta_{slug}"
         table_exists = await self.storage._table_exists(_table)
         if table_exists:
@@ -176,6 +180,11 @@ class MetadataService:
         except Exception as e:
             logger.exception(f"Failed to create metadata table for type '{slug}': {e}")
             raise Exception(f"Failed to create metadata table for type '{slug}': {e}")
+        else:
+            logger.warning(
+                "Metadata table '%s' already exists without definition; reusing existing table",
+                _table,
+            )
 
         try:
             await self.client.insert(
