@@ -548,7 +548,9 @@ class Clickhouse(StorageEngine):
                 col += " NOT NULL"
             field_columns.append(col)
 
-        safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
+        safe_primary_keys = ["insert_time"] + [
+            self._quoted_identifier(key) for key in primary_key
+        ]
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause(self.data_engine)
@@ -571,7 +573,6 @@ class Clickhouse(StorageEngine):
         TTL insert_time + {ttl_interval};
         """
 
-        logger.info(query)
         try:
             await self.client.command(query)
         except Exception as e:
@@ -617,7 +618,6 @@ class Clickhouse(StorageEngine):
         PARTITION BY toYYYYMM(created_at);
         """
 
-        logger.info(query)
         try:
             return await self.client.command(query)
         except Exception as e:
@@ -865,7 +865,6 @@ class Clickhouse(StorageEngine):
             types = list(names.result_columns[0]) if names.result_columns else []
         else:
             types = []
-        logger.info(types)
         return types
 
     async def _get_on_cluster_clause(self, engine_name: str | None = None) -> str:

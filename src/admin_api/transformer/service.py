@@ -38,11 +38,11 @@ class TransformerService:
             # Lookup the referenced definition
             result = await self.storage.client.query(
                 f"SELECT id from {self.storage._qualified_table_name('definition')}"
-                + " WHERE ref = {ref:String}",
-                parameters={"ref": definition_ref},
+                + " WHERE id = {id:String}",
+                parameters={"id": definition_ref},
             )
             if result.row_count == 0:
-                raise Exception("No definition with that ref found")
+                raise Exception("No definition with that id found")
 
             data = {
                 "id": slug,
@@ -74,7 +74,7 @@ class TransformerService:
             result = await self.storage.client.query(
                 f"SELECT id, ref, definition_ref, name, slug, description, match_field, updated_at FROM {table_name}"
                 + " WHERE definition_ref LIKE {definition_ref:String} ORDER BY name",
-                parameters={"definition_ref": f"{definition_ref}__%"},
+                parameters={"definition_ref": definition_ref},
             )
         else:
             result = await self.storage.client.query(

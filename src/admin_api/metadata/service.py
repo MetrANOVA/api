@@ -225,7 +225,7 @@ class MetadataService:
             f"DROP TABLE IF EXISTS {self.storage._qualified_table_name(meta_table)}"
         )
         await self.client.command(
-            f"DELETE FROM {self.storage._qualified_table_name('definition')} WHERE slug = %s AND length(meta_fields) > 0",
+            f"DELETE FROM {self.storage._qualified_table_name('definition')} WHERE slug = %s AND type = 'metadata'",
             parameters=[slug],
         )
 
