@@ -52,11 +52,17 @@ class StorageEngine(ABC):
         pass
 
     @abstractmethod
+    async def _get_on_cluster_clause(self, engine_name: str | None = None) -> str:
+        pass
+
+    @abstractmethod
     async def find_all_resource_types(self) -> list | None:
         pass
 
     @abstractmethod
-    async def find_resource_type_by_slug(self, slug: str) -> dict[str, Any] | tuple | None:
+    async def find_resource_type_by_slug(
+        self, slug: str
+    ) -> dict[str, Any] | tuple | None:
         pass
 
     @abstractmethod

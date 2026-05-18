@@ -36,6 +36,7 @@ class Clickhouse(StorageEngine):
         self.username = os.getenv("CLICKHOUSE_USERNAME", "default")
         self.password = os.getenv("CLICKHOUSE_PASSWORD", "")
         self.cluster_name = os.getenv("CLICKHOUSE_CLUSTER_NAME", None)
+        self._cluster_info_cache: dict | None = None
 
         # self.is_connected = False
         self.client = None
@@ -73,15 +74,16 @@ class Clickhouse(StorageEngine):
                 f"Connected to ClickHouse at {self.host}:{self.port}, database: {database}"
             )
 
-            clusters: QueryResult = await self.client.query(
-                "select * from system.clusters"
-            )
-            if clusters.row_count > 1:
+            cluster_info = await self.get_cluster_info(force_refresh=True)
+            if cluster_info.get("mode") == "clustered":
                 logger.info(
                     "ClickHouse cluster configuration detected. Using cluster-aware database engines."
                 )
                 self.metadata_engine = "ReplicatedMergeTree"
                 self.data_engine = "ReplicatedCoalescingMergeTree"
+            else:
+                self.metadata_engine = "MergeTree"
+                self.data_engine = "CoalescingMergeTree"
         except Exception as e:
             logger.error(f"Failed to connect to ClickHouse: {e}")
             raise
@@ -96,7 +98,7 @@ class Clickhouse(StorageEngine):
             logger.warning("No database name specified, skipping database creation")
             return
         try:
-            on_cluster_clause = await self._get_on_cluster_clause()
+            on_cluster_clause = await self._get_on_cluster_clause(self.data_engine)
             create_db_query = (
                 f"CREATE DATABASE IF NOT EXISTS {self.database}{on_cluster_clause}"
             )
@@ -162,6 +164,9 @@ class Clickhouse(StorageEngine):
 
         return type_token_pattern.sub(replace_token, value)
 
+    def _is_replicated_engine(self, engine_name: str) -> bool:
+        return engine_name.lower().startswith("replicated")
+
     @staticmethod
     def _exists_result_to_bool(result) -> bool:
         rows = getattr(result, "result_rows", None) or []
@@ -181,7 +186,6 @@ class Clickhouse(StorageEngine):
         try:
             return int(first_value) == 1
         except TypeError, ValueError:
-            # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
             return True
 
     async def _table_exists(self, table_name: str) -> bool:
@@ -549,7 +553,7 @@ class Clickhouse(StorageEngine):
         ]
 
         table_name = f"data_{slug}"
-        on_cluster_clause = await self._get_on_cluster_clause()
+        on_cluster_clause = await self._get_on_cluster_clause(self.data_engine)
         ttl_interval = self._render_ttl_interval(ttl)
         query = f"""
         CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause}
@@ -593,7 +597,7 @@ class Clickhouse(StorageEngine):
         safe_primary_keys = [self._quoted_identifier(key) for key in primary_key]
 
         table_name = f"meta_{slug}"
-        on_cluster_clause = await self._get_on_cluster_clause()
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
         query = f"""
         CREATE TABLE {self._qualified_table_name(table_name)}{on_cluster_clause} (
             id String NOT NULL,
@@ -795,12 +799,29 @@ class Clickhouse(StorageEngine):
 
         definition_table = self._qualified_table_name("definition")
         result = await self.client.query(f"EXISTS TABLE {definition_table}")
-        exists = self._exists_result_to_bool(result)
+        rows = getattr(result, "result_rows", None) or []
+        exists = False
+        if rows:
+            first_row = rows[0]
+            first_value = first_row
+            if isinstance(first_row, dict):
+                first_value = next(iter(first_row.values()), 0)
+            elif isinstance(first_row, (list, tuple)) and first_row:
+                first_value = first_row[0]
+
+            if isinstance(first_value, bool):
+                exists = first_value
+            else:
+                try:
+                    exists = int(first_value) == 1
+                except TypeError, ValueError:
+                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+                    exists = True
 
         if exists:
             return
 
-        on_cluster_clause = await self._get_on_cluster_clause()
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
 
         # TODO: Consider ENGINE type for this table. Maybe it should always be a
         # MergeTree?
@@ -846,64 +867,93 @@ class Clickhouse(StorageEngine):
             types = []
         return types
 
-    async def _get_on_cluster_clause(self) -> str:
-        try:
-            cluster_info = await self.get_cluster_info()
-        except Exception as exc:
-            logger.warning(
-                f"Unable to detect cluster mode, defaulting to standalone: {exc}"
-            )
-            return ""
+    async def _get_on_cluster_clause(self, engine_name: str | None = None) -> str:
+        cluster_info = await self.get_cluster_info()
 
         if cluster_info.get("mode") != "clustered":
+            if engine_name and self._is_replicated_engine(engine_name):
+                raise RuntimeError(
+                    f"Engine '{engine_name}' requires clustered mode and an ON CLUSTER target"
+                )
             return ""
 
         cluster_name = cluster_info.get("cluster_name")
         if not cluster_name:
-            return ""
+            raise RuntimeError(
+                "Clustered mode detected but no cluster name was resolved"
+            )
 
         safe_cluster_name = str(cluster_name).replace("'", "\\'")
         return f" ON CLUSTER '{safe_cluster_name}'"
 
-    async def get_cluster_info(self):
-        result = await self.client.query("""
-            SELECT
-                cluster,
-                shard_num,
-                replica_num,
-                host_name,
-                host_address,
-                port
-            FROM system.clusters
-            WHERE is_local = 0
-            ORDER BY cluster, shard_num, replica_num
-        """)
+    async def get_cluster_info(self, force_refresh: bool = False):
+        if self._cluster_info_cache is not None and not force_refresh:
+            return self._cluster_info_cache
 
-        rows = result.result_rows
-        if not rows:
-            return {"mode": "standalone", "clusters": []}
+        rows = []
+        if self.client is not None:
+            try:
+                result = await self.client.query("""
+                    SELECT
+                        cluster,
+                        shard_num,
+                        replica_num,
+                        host_name,
+                        host_address,
+                        port
+                    FROM system.clusters
+                    WHERE is_local = 0
+                    ORDER BY cluster, shard_num, replica_num
+                """)
+                rows = getattr(result, "result_rows", None) or []
+            except Exception as exc:
+                if self.cluster_name:
+                    logger.warning(
+                        "Unable to query system.clusters (%s). Falling back to CLICKHOUSE_CLUSTER_NAME=%s",
+                        exc,
+                        self.cluster_name,
+                    )
+                else:
+                    logger.warning(
+                        "Unable to query system.clusters (%s). Falling back to standalone mode",
+                        exc,
+                    )
 
-        valid_rows = []
+        discovered_clusters = []
         for row in rows:
             if not row:
                 continue
-            cluster_name = row.get("cluster") if isinstance(row, dict) else row[0]
-            if isinstance(cluster_name, str) and cluster_name:
-                valid_rows.append(row)
+            cluster = row.get("cluster") if isinstance(row, dict) else row[0]
+            if (
+                isinstance(cluster, str)
+                and cluster
+                and cluster not in discovered_clusters
+            ):
+                discovered_clusters.append(cluster)
 
-        if not valid_rows:
-            return {"mode": "standalone", "clusters": []}
+        if self.cluster_name:
+            if discovered_clusters and self.cluster_name not in discovered_clusters:
+                logger.warning(
+                    "Configured CLICKHOUSE_CLUSTER_NAME=%s not found in discovered clusters %s. Using configured value.",
+                    self.cluster_name,
+                    discovered_clusters,
+                )
+            cluster_info = {
+                "mode": "clustered",
+                "cluster_name": self.cluster_name,
+                "clusters": rows,
+            }
+        elif discovered_clusters:
+            cluster_info = {
+                "mode": "clustered",
+                "cluster_name": discovered_clusters[0],
+                "clusters": rows,
+            }
+        else:
+            cluster_info = {"mode": "standalone", "clusters": rows}
 
-        first_row = valid_rows[0]
-        cluster_name = (
-            first_row.get("cluster") if isinstance(first_row, dict) else first_row[0]
-        )
-
-        return {
-            "mode": "clustered",
-            "cluster_name": cluster_name,
-            "clusters": valid_rows,
-        }
+        self._cluster_info_cache = cluster_info
+        return cluster_info
 
     async def ensure_transformer_table(self):
         if not await self.is_connected():
@@ -933,7 +983,7 @@ class Clickhouse(StorageEngine):
         if exists:
             return
 
-        on_cluster_clause = await self._get_on_cluster_clause()
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
 
         await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
@@ -978,7 +1028,7 @@ class Clickhouse(StorageEngine):
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
 
-        on_cluster_clause = await self._get_on_cluster_clause()
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
 
         await self.client.command(f"""
             CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}

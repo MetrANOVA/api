@@ -3,10 +3,20 @@ import json
 import logging
 import re
 
+from typing import TYPE_CHECKING
+
+from typing import TYPE_CHECKING
+
 from datetime import date, datetime
 from pydantic import BaseModel, model_validator, create_model
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from metranova.storage.clickhouse import Clickhouse
+
+if TYPE_CHECKING:
+    from metranova.storage.clickhouse import Clickhouse
 
 
 def slugify(value: str) -> str:
@@ -31,6 +41,8 @@ CH_TYPE_MAP: dict[str, type] = {
     "Date": date,
     "DateTime": datetime,
     "DateTime64": datetime,
+    "Array": list,
+    "IPv6": str,
 }
 
 
@@ -60,6 +72,7 @@ RESERVED_COLUMNS = {
     "ref",
     "hash",
     "created_at",
+    "insert_time",
     "updated_at",
     "tag",
     "policy_level",
@@ -73,6 +86,25 @@ def compute_record_hash(record: dict) -> str:
     payload = {k: v for k, v in record.items() if k not in RESERVED_COLUMNS}
     serialized = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.md5(serialized.encode()).hexdigest()
+
+
+def build_metadata_id(record: dict[str, any], identifier: list[str]) -> str:
+    """Build the metadata record id from configured identifier fields."""
+    parts: list[str] = []
+    for field in identifier:
+        if field not in record:
+            raise ValueError(f"Identifier field '{field}' is required.")
+
+        value = record[field]
+        if value is None:
+            raise ValueError(f"Identifier field '{field}' cannot be null.")
+
+        if isinstance(value, list):
+            parts.append("::".join(str(item) for item in value))
+        else:
+            parts.append(str(value))
+
+    return "::".join(parts)
 
 
 class MetadataService:
@@ -99,8 +131,16 @@ class MetadataService:
             raise ValueError("Metadata type must include at least one field")
 
         _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
-        order_expr = "id" if not _primary_keys else f"id, {', '.join(_primary_keys)}"
         _table = f"meta_{slug}"
+        table_exists = await self.storage._table_exists(_table)
+        if table_exists:
+            raise ValueError(f"Metadata table '{_table}' already exists.")
+
+        if not fields:
+            raise ValueError("Metadata type must include at least one field")
+
+        _primary_keys = [self.storage._quoted_identifier(key) for key in identifier]
+        order_expr = "id" if not _primary_keys else f"id, {', '.join(_primary_keys)}"
         _cols = []
         for f in fields:
             _name = self.storage._quoted_identifier(f.name)
@@ -110,37 +150,36 @@ class MetadataService:
             else:
                 _cols.append(f"{_name} {_type} NOT NULL")
 
-        table_exists = await self.storage._table_exists(_table)
-        if not table_exists:
-            query = f"""
-            CREATE TABLE {self.storage._qualified_table_name(_table)} (
-                id String NOT NULL,
-                ref String NOT NULL,
-                hash String NOT NULL,
-                created_at DateTime DEFAULT now() NOT NULL,
-                updated_at DateTime DEFAULT now() NOT NULL,
-                tag Array(LowCardinality(String)), 
-                policy_level LowCardinality(String) NOT NULL,
-                policy_scope Array(LowCardinality(String)) NOT NULL,
-                policy_originator LowCardinality(String) NOT NULL,
-                {",\n".join(_cols)},
-                ext JSON
-            )
-            ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
-            ORDER BY ({order_expr})
-            PRIMARY KEY ({order_expr})
-            PARTITION BY created_at;
-            """
+        on_cluster_clause = await self.storage._get_on_cluster_clause(
+            self.storage.metadata_engine
+        )
 
-            try:
-                await self.client.command(query)
-            except Exception as e:
-                logger.exception(
-                    f"Failed to create metadata table for type '{slug}': {e}"
-                )
-                raise Exception(
-                    f"Failed to create metadata table for type '{slug}': {e}"
-                )
+        query = f"""
+        CREATE TABLE {self.storage._qualified_table_name(_table)}{on_cluster_clause} (
+            id String NOT NULL,
+            ref String NOT NULL,
+            hash String NOT NULL,
+            created_at DateTime DEFAULT now() NOT NULL,
+            insert_time DateTime DEFAULT now() NOT NULL,
+            updated_at DateTime DEFAULT now() NOT NULL,
+            tag Array(LowCardinality(String)), 
+            policy_level LowCardinality(String) NOT NULL,
+            policy_scope Array(LowCardinality(String)) NOT NULL,
+            policy_originator LowCardinality(String) NOT NULL,
+            {",\n".join(_cols)},
+            ext JSON
+        )
+        ENGINE = {self.storage._validated_engine_name(self.storage.metadata_engine)}()
+        ORDER BY ({order_expr})
+        PRIMARY KEY ({order_expr})
+        PARTITION BY insert_time;
+        """
+
+        try:
+            await self.client.command(query)
+        except Exception as e:
+            logger.exception(f"Failed to create metadata table for type '{slug}': {e}")
+            raise Exception(f"Failed to create metadata table for type '{slug}': {e}")
         else:
             logger.warning(
                 "Metadata table '%s' already exists without definition; reusing existing table",
@@ -246,7 +285,7 @@ class MetadataService:
         existing_ref = (
             await self.client.query(
                 f"SELECT ref FROM {self.storage._qualified_table_name('definition')}"
-                + " WHERE slug = {slug:String} AND type = 'metadata' ORDER BY updated_at DESC LIMIT 1",
+                + " WHERE slug = {slug:String} AND length(meta_fields) > 0 ORDER BY updated_at DESC LIMIT 1",
                 parameters={"slug": slug},
             )
         ).first_row[0]
@@ -284,7 +323,7 @@ class MetadataService:
     async def get_metadata_type(self, slug):
         result = await self.client.query(
             f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')}"
-            + " WHERE type = 'metadata' and slug = {slug:String}",
+            + " WHERE length(meta_fields) > 0 and slug = {slug:String} ORDER BY updated_at DESC LIMIT 1",
             parameters={"slug": slug},
         )
         if result.row_count == 0:
@@ -312,7 +351,7 @@ class MetadataService:
 
     async def get_metadata_types(self):
         result = await self.client.query(
-            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE type = 'metadata'"
+            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE length(meta_fields) > 0"
         )
         return list(result.named_results())
 
@@ -321,11 +360,8 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
-        identifier = definition.get("identifier") or []
-        if identifier:
-            record["id"] = "::".join([record[i] for i in identifier])
-        elif "id" not in record:
-            raise ValueError("'id' is required when metadata type has no identifier")
+        record = record.copy()
+        record["id"] = build_metadata_id(record, definition["identifier"])
 
         new_hash = compute_record_hash(record)
 
@@ -342,6 +378,9 @@ class MetadataService:
         record["hash"] = new_hash
         record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
+        record.pop("insert_time", None)
+        record.pop("created_at", None)
+        record.pop("updated_at", None)
 
         time = datetime.now()
         record["created_at"] = time
@@ -360,15 +399,19 @@ class MetadataService:
     ):
         table = f"meta_{definition['slug']}"
 
+        record = record.copy()
         record["hash"] = compute_record_hash(record)
         record["ext"] = {}
         record["ref"] = f"{record['id']}__v{version}"
+        record.pop("insert_time", None)
+        record.pop("created_at", None)
+        record.pop("updated_at", None)
 
         existing = await self.client.query(
             f"""
             SELECT * FROM {self.storage._qualified_table_name(table)} WHERE (id, updated_at) IN (
                 SELECT id, max(updated_at) FROM {self.storage._qualified_table_name(table)} WHERE ref=%s GROUP BY (id, created_at)
-            ) ORDER BY created_at DESC
+            ) ORDER BY updated_at DESC
             """,
             parameters=[record["ref"]],
         )
@@ -393,7 +436,7 @@ class MetadataService:
             f"""
             SELECT * FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE (id, updated_at) IN (
                 SELECT id, max(updated_at) FROM {self.storage._qualified_table_name("meta_"+slug)} WHERE id=%s GROUP BY (id, created_at)
-            ) ORDER BY created_at DESC
+            ) ORDER BY updated_at DESC
             """,
             parameters=[_id],
         )
@@ -402,12 +445,17 @@ class MetadataService:
     async def get_metadata_records(self, slug: str) -> list[dict]:
         result = await self.client.query(
             """
-            SELECT t.* FROM {db:Identifier}.{table:Identifier} t
-            INNER JOIN (
-                SELECT id, max(created_at) AS max_created_at
-                FROM {db:Identifier}.{table:Identifier}
-                GROUP BY id
-            ) latest ON t.id = latest.id AND t.created_at = latest.max_created_at
+            SELECT *
+            FROM (
+                SELECT
+                    t.*,
+                    row_number() OVER (
+                        PARTITION BY id
+                        ORDER BY updated_at DESC, updated_at DESC, created_at DESC
+                    ) AS _rn
+                FROM {db:Identifier}.{table:Identifier} t
+            )
+            WHERE _rn = 1
             """,
             parameters={"db": "metranova", "table": f"meta_{slug}"},
         )

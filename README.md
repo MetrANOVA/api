@@ -130,6 +130,12 @@ docker compose -f .devcontainer/docker-compose.yml down -v
 docker compose -f .devcontainer/docker-compose.yml up -d
 ```
 
+### Making sure stuff works
+
+```
+/opt/kafka/bin/kafka-dump-log.sh \
+--files /var/lib/kafka/data/metranova_snmp-0/00000000000000000000.log \
+--print-data-log
 
 ## Notes
 

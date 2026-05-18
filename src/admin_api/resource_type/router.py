@@ -38,6 +38,8 @@ def _to_metadata_fields(fields):
         for f in fields
     ]
 
+    slug = request.name.lower().replace(" ", "-")
+
 
 def _metadata_fields_for_creation(data_fields, meta_fields, identifier):
     if meta_fields:
@@ -322,3 +324,27 @@ async def update_resource_type_by_slug(
         raise HTTPException(status_code=400, detail=message)
 
     return {"message": message}
+
+
+@router.get("/{slug}/identifiers")
+async def get_identifiers_for_type(
+    slug: str,
+    se: Clickhouse = Depends(get_clickhouse),
+):
+    await se.connect()
+
+    resource_type = await se.find_resource_type_by_slug(slug)
+    if resource_type is None:
+        raise HTTPException(
+            status_code=404, detail=f"Resource type {slug} does not exist"
+        )
+    ids = resource_type.get("identifier", [])
+    is_data = len(resource_type.get("data_fields", [])) > 0
+    if is_data:
+        table_type = "data"
+    else:
+        table_type = "meta"
+    query = f"SELECT DISTINCT {','.join(ids)} FROM {se._qualified_table_name(f'{table_type}_{slug}' )} WHERE insert_time >= now() - INTERVAL 1 HOUR;"
+    logger.info(query)
+    results = await se.client.query(query)
+    return list(results.named_results())
