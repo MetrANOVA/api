@@ -5,6 +5,7 @@ import os
 import re
 
 from .base import StorageEngine, CollectionField, CollectionType
+from ..container.kube import restart_deployment
 from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
@@ -362,6 +363,7 @@ class Clickhouse(StorageEngine):
             )
             return False, "Error during type definition insertion"
 
+        await self.restart_pipelines()
         return True, f"Type {name} has been successfully created"
 
     async def find_all_resource_types(self):
@@ -771,6 +773,7 @@ class Clickhouse(StorageEngine):
                     "is_replicated",
                 ],
             )
+            await self.restart_pipelines()
             return True, f"Resource type '{slug}' updated to {new_ref}"
         except Exception as e:
             logger.exception(f"Error writing updated definition for slug '{slug}': {e}")
@@ -1051,3 +1054,11 @@ class Clickhouse(StorageEngine):
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
         """)
+
+    async def restart_pipelines(self):
+        try:
+            if self.container_manager == "kubernetes":
+                for pl in self.pipelines:
+                    restart_deployment(pl)
+        except Exception as e:
+            logger.exception(e)
