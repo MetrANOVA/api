@@ -121,6 +121,7 @@ class FakeStorage:
         self.duplicate_transformer = False
         self.missing_definition = False
         self.ensure_called = False
+        self.restart_called = 0
         self.inserted = None
         self.last_command = None
         self.transformer_list = [SNMP_TRANSFORMER, FLOW_TRANSFORMER]
@@ -177,6 +178,9 @@ class FakeStorage:
 
     async def ensure_transformer_column_table(self):
         self.ensure_called = True
+
+    async def restart_pipelines(self):
+        self.restart_called += 1
 
     def _qualified_table_name(self, table: str) -> str:
         return f"{self.database}.{table}"
