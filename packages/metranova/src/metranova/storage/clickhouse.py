@@ -38,6 +38,10 @@ class Clickhouse(StorageEngine):
         self.cluster_name = os.getenv("CLICKHOUSE_CLUSTER_NAME", None)
         self._cluster_info_cache: dict | None = None
 
+        self.container_manager = os.getenv("CONTAINER_MANAGER", "docker")
+        pipeline_deployments = os.getenv("PIPELINE_DEPLOYMENTS", "")
+        self.pipelines = pipeline_deployments.split(",")
+
         # self.is_connected = False
         self.client = None
 

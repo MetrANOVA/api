@@ -2,6 +2,7 @@ import logging
 import json
 
 from metranova.storage.clickhouse import Clickhouse
+from metranova.container.kube import restart_deployment
 from fastapi import Depends
 from typing import Optional
 from ..context import get_clickhouse
@@ -196,6 +197,14 @@ class TransformerService:
             logger.exception("Error updating transformer")
             return False, {"message": f"Error updating transformer: {e}"}
 
+    async def restart_pipelines(self):
+        try:
+            if self.storage.container_manager == "kubernetes":
+                for pl in self.storage.pipelines:
+                    restart_deployment(pl)
+        except Exception as e:
+            logger.exception(e)
+
     async def create_transformer_column(
         self,
         id: str,
@@ -240,6 +249,7 @@ class TransformerService:
                 column_names=list(data.keys()),
                 data=[list(data.values())],
             )
+            await self.restart_pipelines()
             return True, data
 
         except Exception as e:
@@ -399,6 +409,7 @@ class TransformerService:
             + " WHERE transformer_ref = {transformer_ref:String} AND id = {id:String}",
             parameters=parameters,
         )
+        await self.restart_pipelines()
 
         updated = dict(current)
         if target_column is not None:
@@ -438,7 +449,7 @@ class TransformerService:
             + " WHERE transformer_ref = {transformer_ref:String} AND id = {id:String}",
             parameters={"transformer_ref": transformer_ref, "id": column_id},
         )
-
+        await self.restart_pipelines()
         return True, {
             "message": f"Transformer column '{column_id}' deleted",
             "id": column_id,
