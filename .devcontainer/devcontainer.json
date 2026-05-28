@@ -24,7 +24,8 @@
 	},
 	"forwardPorts": [
 		8123,
-		9092
+		9092,
+		8000
 	],
 	"features": {
 		"ghcr.io/devcontainers/features/copilot-cli:1": {}
