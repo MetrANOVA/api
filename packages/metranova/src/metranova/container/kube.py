@@ -40,6 +40,5 @@ def restart_deployment(deployment_name):
         logger.info(f"Rollout restart triggered for deployment '{deployment_name}'.")
         return True
     except ApiException as ex:
-        logger.exception("Exception while restarting deployment: {e}")
-
+        logger.exception("Exception while restarting deployment: %s", ex)
     return False
