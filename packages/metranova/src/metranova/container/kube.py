@@ -20,8 +20,8 @@ def restart_deployment(deployment_name):
     except config.ConfigException:
         config.load_kube_config()
     except Exception as e:
-        logger.exception(f"Unable to find config for kubernetes cluster {e}")
-
+        logger.exception("Unable to find config for kubernetes cluster: %s", e)
+        return False
     apps_v1_api = client.AppsV1Api()
     namespace = get_current_namespace()
     now = datetime.now(timezone.utc).isoformat()
