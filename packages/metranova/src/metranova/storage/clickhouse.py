@@ -41,7 +41,7 @@ class Clickhouse(StorageEngine):
 
         self.container_manager = os.getenv("CONTAINER_MANAGER", "docker")
         pipeline_deployments = os.getenv("PIPELINE_DEPLOYMENTS", "")
-        self.pipelines = pipeline_deployments.split(",")
+        self.pipelines = [p.strip() for p in pipeline_deployments.split(",") if p.strip()]
 
         # self.is_connected = False
         self.client = None
