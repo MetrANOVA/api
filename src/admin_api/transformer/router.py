@@ -303,7 +303,6 @@ async def create_transformer_columns(
 
     This endpoint accepts an array of column definitions and creates them atomically.
     All columns are validated before any creation. If validation fails, no columns are created.
-    Pipelines are restarted once after all columns are created.
     """
     try:
         found, transformer = await service.get_transformer_by_id(transformer_id)
