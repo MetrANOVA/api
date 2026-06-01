@@ -11,7 +11,7 @@ def get_current_namespace():
         with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace", "r") as f:
             return f.read().strip()
     except FileNotFoundError:
-        return ""
+        return "default"
 
 
 def restart_deployment(deployment_name):
