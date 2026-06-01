@@ -363,7 +363,6 @@ class Clickhouse(StorageEngine):
             )
             return False, "Error during type definition insertion"
 
-        await self.restart_pipelines()
         return True, f"Type {name} has been successfully created"
 
     async def find_all_resource_types(self):
@@ -773,7 +772,6 @@ class Clickhouse(StorageEngine):
                     "is_replicated",
                 ],
             )
-            await self.restart_pipelines()
             return True, f"Resource type '{slug}' updated to {new_ref}"
         except Exception as e:
             logger.exception(f"Error writing updated definition for slug '{slug}': {e}")

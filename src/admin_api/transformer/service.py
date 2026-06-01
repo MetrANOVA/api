@@ -240,7 +240,6 @@ class TransformerService:
                 column_names=list(data.keys()),
                 data=[list(data.values())],
             )
-            await self.storage.restart_pipelines()
             return True, data
 
         except Exception as e:
@@ -370,15 +369,6 @@ class TransformerService:
                         "id": column.get("id"),
                         "message": f"Error creating column: {str(e)}",
                     }
-                )
-
-        # Restart pipelines once after all insertions
-        if created_results:
-            try:
-                await self.storage.restart_pipelines()
-            except Exception as e:
-                logger.exception(
-                    "Error restarting pipelines after batch column creation"
                 )
 
         return {
@@ -541,7 +531,6 @@ class TransformerService:
             + " WHERE transformer_ref = {transformer_ref:String} AND id = {id:String}",
             parameters=parameters,
         )
-        await self.storage.restart_pipelines()
 
         updated = dict(current)
         if target_column is not None:
@@ -581,7 +570,6 @@ class TransformerService:
             + " WHERE transformer_ref = {transformer_ref:String} AND id = {id:String}",
             parameters={"transformer_ref": transformer_ref, "id": column_id},
         )
-        await self.storage.restart_pipelines()
         return True, {
             "message": f"Transformer column '{column_id}' deleted",
             "id": column_id,
