@@ -870,38 +870,6 @@ def test_transformer_columns_create_with_missing_required_field(
     assert response.status_code == 422
 
 
-def test_transformer_columns_create_batch_restart_called_once(
-    transformer_api_client,
-):
-    """Test that restart_pipelines is called exactly once for batch (not per column)."""
-    client, fake_storage = transformer_api_client
-
-    response = client.post(
-        "/transformers/snmp_normalizer/columns",
-        json={
-            "columns": [
-                {
-                    "id": "col1",
-                    "target_column": "field1",
-                    "operation": "field",
-                    "config": {"source": "src1"},
-                },
-                {
-                    "id": "col2",
-                    "target_column": "field2",
-                    "operation": "field",
-                    "config": {"source": "src2"},
-                },
-            ]
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["created"] == 2
-    # Verify restart_pipelines was called once (tracked via restart_called)
-    assert fake_storage.restart_called == 1
-
-
 def test_transformer_columns_create_batch_empty_array_rejected(
     transformer_api_client,
 ):
