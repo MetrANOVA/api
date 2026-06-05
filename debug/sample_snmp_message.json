@@ -1,0 +1,17 @@
+{
+    "fields": {
+        "cpu": 3,
+        "sensor_id": "13",
+        "sensor_name": "0/PM0"
+    },
+    "name": "cpu_stats",
+    "tags": {
+        "agent_host": "156.56.6.124",
+        "collector": "telegraf-polling-service",
+        "device": "agg1.lab-ncs55a1.testlab.grnoc.iu.edu",
+        "interval": "60",
+        "node": "agg1.lab-ncs55a1.testlab.grnoc.iu.edu",
+        "protocol": "snmp"
+    },
+    "timestamp": 1779883741
+}

@@ -1,6 +1,15 @@
 run-api:
 	uv run fastapi dev
 
+stop-simulators:
+	docker stop telegraf snmp-simulator
+
+inject-message:
+	python bin/inject-kafka-message.py $(MSG)
+
+import-ch-dump:
+	docker exec -i clickhouse clickhouse-client --multiquery < $(DUMP)
+
 setup:
 	git submodule update --init --recursive
 	uv sync --frozen --all-groups
