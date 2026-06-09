@@ -49,9 +49,9 @@ class Clickhouse(StorageEngine):
         if os.getenv("CLICKHOUSE_SKIP_DB_CREATE", "false").lower() != "true":
             await instance.create_database()
 
-        await cls._ensure_definition_table()
-        await cls.ensure_transformer_table()
-        await cls.ensure_transformer_column_table()
+        await instance._ensure_definition_table()
+        await instance.ensure_transformer_table()
+        await instance.ensure_transformer_column_table()
         return instance
 
     async def connect(self, database: str | None = None):
@@ -531,6 +531,7 @@ class Clickhouse(StorageEngine):
         safe_primary_keys = ["insert_time"] + [
             self._quoted_identifier(key) for key in primary_key
         ]
+        key_columns = ", ".join(["collector_id", *safe_primary_keys])
 
         table_name = f"data_{slug}"
         on_cluster_clause = await self._get_on_cluster_clause(self.data_engine)
@@ -547,8 +548,8 @@ class Clickhouse(StorageEngine):
             ext JSON
         )
         ENGINE = {self._validated_engine_name(self.data_engine)}()
-        ORDER BY (collector_id, {', '.join(safe_primary_keys)})
-        PRIMARY KEY (collector_id, {', '.join(safe_primary_keys)})
+        ORDER BY ({key_columns})
+        PRIMARY KEY ({key_columns})
         PARTITION BY toYYYYMM(insert_time)
         TTL insert_time + {ttl_interval};
         """
