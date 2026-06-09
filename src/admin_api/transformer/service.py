@@ -20,8 +20,6 @@ class TransformerService:
     async def create_transformer(
         self, name: str, definition_ref: str, description: str, match_field: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         slug = name.lower().replace(" ", "_")
 
         table_name = self.storage._qualified_table_name("transformer")
@@ -67,7 +65,6 @@ class TransformerService:
     async def get_all_transformers(
         self, definition_ref: str | None = None
     ) -> list[dict]:
-        await self.storage.ensure_transformer_table()
 
         table_name = self.storage._qualified_table_name("transformer")
         if definition_ref is not None:
@@ -102,8 +99,6 @@ class TransformerService:
         ]
 
     async def get_transformer_by_id(self, transformer_id: str) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         table_name = self.storage._qualified_table_name("transformer")
         try:
             result = await self.storage.client.query(
@@ -149,8 +144,6 @@ class TransformerService:
         description: str | None,
         match_field: str | None,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         try:
             # Confirm the transformer exists first and keep the current payload
             found, current = await self.get_transformer_by_id(transformer_id)
@@ -209,8 +202,6 @@ class TransformerService:
         default_value: str | None,
         order: int = 1,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         try:
             if operation not in operations:
                 raise Exception("Unknown operation: " + operation)
@@ -247,8 +238,6 @@ class TransformerService:
             return False, {"message": f"Error creating transformer column: {e}"}
 
     async def get_transformer_columns(self, transformer_ref: str) -> list[dict]:
-        await self.storage.ensure_transformer_column_table()
-
         table_name = self.storage._qualified_table_name("transformer_column")
         result = await self.storage.client.query(
             f"SELECT id, transformer_ref, target_column, match_value, vendor_match_field, vendor_match_value, operation, config, default_value, `order` FROM {table_name}"
@@ -279,8 +268,6 @@ class TransformerService:
     async def get_transformer_column_by_id(
         self, transformer_ref: str, column_id: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         table_name = self.storage._qualified_table_name("transformer_column")
         result = await self.storage.client.query(
             f"SELECT id, transformer_ref, target_column, match_value, vendor_match_field, vendor_match_value, operation, config, default_value, `order` FROM {table_name}"
@@ -330,8 +317,6 @@ class TransformerService:
         default_value: str | None,
         order: int | None,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         found, current = await self.get_transformer_column_by_id(
             transformer_ref=transformer_ref,
             column_id=column_id,
@@ -423,8 +408,6 @@ class TransformerService:
     async def delete_transformer_column(
         self, transformer_ref: str, column_id: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         found, column = await self.get_transformer_column_by_id(
             transformer_ref=transformer_ref,
             column_id=column_id,
