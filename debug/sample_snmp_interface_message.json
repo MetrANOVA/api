@@ -1,0 +1,17 @@
+{
+  "name": "interface",
+  "timestamp": 1751328000,
+  "tags": {
+    "protocol": "snmp",
+    "node": "core-router-01.example.net",
+    "intf": "GigabitEthernet0/0/1"
+  },
+  "fields": {
+    "SNMP_IF-MIB::ifHCInOctets": 452318841203,
+    "SNMP_IF-MIB::ifHCOutOctets": 981233442110,
+    "SNMP_IF-MIB::ifHCInUcastPkts": 88123991,
+    "SNMP_IF-MIB::ifHCOutUcastPkts": 91233812,
+    "SNMP_IF-MIB::ifInErrors": 0,
+    "SNMP_IF-MIB::ifOutErrors": 0
+  }
+}
