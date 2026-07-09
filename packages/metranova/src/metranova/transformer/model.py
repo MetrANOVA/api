@@ -6,7 +6,17 @@ logger = logging.getLogger(__name__)
 
 
 def _get_field(message: dict, name: str):
-    return message.get("fields", {}).get(name) or message.get("tags", {}).get(name)
+    fields = message.get("fields", {})
+    tags = message.get("tags", {})
+    logger.debug(
+        "_get_field invoked with the following args\nname: %s\nfields.get(name): %r\ntags.get(name): %r",
+        name,
+        fields.get(name),
+        tags.get(name),
+    )
+    if name in fields and fields[name] is not None:
+        return fields[name]
+    return tags.get(name)
 
 
 def _cast(value, cast_type: str | None):
@@ -16,6 +26,12 @@ def _cast(value, cast_type: str | None):
 
 
 def _eval_postfix(tokens: list[str], field_name: str, field_value) -> float:
+    logger.debug(
+        "_eval_postfix invoked with the following args\ntokens: %s\nfield_name: %s\nfield_value: %r",
+        tokens,
+        field_name,
+        field_value,
+    )
     ops = {
         "+": lambda a, b: a + b,
         "-": lambda a, b: a - b,
@@ -27,7 +43,7 @@ def _eval_postfix(tokens: list[str], field_name: str, field_value) -> float:
         if token in ops:
             b, a = stack.pop(), stack.pop()
             stack.append(ops[token](a, b))
-        elif token == field_name:
+        elif token == "value":
             stack.append(float(field_value))
         else:
             stack.append(float(token))
