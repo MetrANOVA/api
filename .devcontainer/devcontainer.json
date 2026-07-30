@@ -8,7 +8,8 @@
 			"extensions": [
 				"ms-python.python",
 				"ms-python.black-formatter",
-				"ms-python.vscode-pylance"
+				"ms-python.vscode-pylance",
+				"anthropic.claude-code"
 			],
 			"settings": {
 				"python.defaultInterpreterPath": "/app/.venv/bin/python",
