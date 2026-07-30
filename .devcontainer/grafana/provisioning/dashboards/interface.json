@@ -218,51 +218,53 @@
             "targets": [
                 {
                     "builderOptions": {
-                        "aggregates": [
-                            {
-                                "aggregateType": "avg",
-                                "column": "tx_bytes"
-                            },
-                            {
-                                "aggregateType": "avg",
-                                "column": "rx_bytes"
-                            }
-                        ],
+                        "aggregates": [],
                         "columns": [
                             {
+                                "alias": "tx_bytes",
+                                "custom": false,
+                                "name": "tx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "rx_bytes",
+                                "custom": false,
+                                "name": "rx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "node",
+                                "custom": false,
+                                "name": "node",
+                                "type": "String"
+                            },
+                            {
+                                "alias": "intf",
+                                "custom": false,
+                                "name": "intf",
+                                "type": "String"
+                            },
+                            {
+                                "alias": "insert_time",
                                 "hint": "time",
                                 "name": "insert_time",
                                 "type": "DateTime"
                             }
                         ],
                         "database": "metranova",
-                        "filters": [
-                            {
-                                "condition": "AND",
-                                "filterType": "custom",
-                                "hint": "time",
-                                "key": "",
-                                "operator": "WITH IN DASHBOARD TIME RANGE",
-                                "type": "datetime"
-                            }
-                        ],
-                        "groupBy": [
-                            "node",
-                            "intf"
-                        ],
+                        "filters": [],
+                        "groupBy": [],
                         "limit": 1000,
                         "meta": {},
-                        "mode": "trend",
+                        "mode": "aggregate",
                         "orderBy": [
                             {
-                                "default": true,
                                 "dir": "ASC",
-                                "hint": "time",
-                                "name": ""
+                                "name": "insert_time"
                             }
                         ],
                         "queryType": "timeseries",
-                        "table": "data_interfacev2"
+                        "table": "data_interface"
                     },
                     "datasource": {
                         "type": "grafana-clickhouse-datasource",
@@ -270,8 +272,8 @@
                     },
                     "editorType": "builder",
                     "format": 0,
-                    "pluginVersion": "4.17.0",
-                    "rawSql": "SELECT $__timeInterval(insert_time) as \"time\", node, intf, avg(tx_bytes), avg(rx_bytes) FROM \"metranova\".\"data_interfacev2\" WHERE ( time >= $__fromTime AND time <= $__toTime ) GROUP BY node, intf, time ORDER BY time ASC LIMIT 1000",
+                    "pluginVersion": "4.20.0",
+                    "rawSql": "SELECT insert_time as \"time\", tx_bytes, rx_bytes, node, intf FROM \"metranova\".\"data_interface\" ORDER BY insert_time ASC LIMIT 1000",
                     "refId": "A"
                 }
             ],
@@ -294,6 +296,6 @@
     "timezone": "browser",
     "title": "Node Overview",
     "uid": "adbtwx6",
-    "version": 3,
+    "version": 2,
     "weekStart": ""
 }
