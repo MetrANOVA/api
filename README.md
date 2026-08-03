@@ -23,6 +23,7 @@ This repository uses a `uv` workspace with three packages:
 
 - `python bin/start-admin-api.py`
 - `python bin/start-pipeline.py`
+- `python bin/start-redeploy-watcher.py`
 
 ## Bootstrapping definitions
 

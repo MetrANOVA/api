@@ -605,9 +605,9 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     assert "CREATE TABLE `metranova`.`data_interface_traffic`" in query
     assert "`if_name` String NOT NULL" in query
     assert "`rx_bps` Float64" in query
-    assert "PRIMARY KEY (collector_id, `if_name`, `timestamp`)" in query
+    assert "PRIMARY KEY (collector_id, insert_time, `if_name`, `timestamp`)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
-    assert "ORDER BY (collector_id, `if_name`, `timestamp`)" in query
+    assert "ORDER BY (collector_id, insert_time, `if_name`, `timestamp`)" in query
     assert "TTL insert_time + INTERVAL 365 DAY" in query
     assert "insert_time DateTime DEFAULT now()," in query
 

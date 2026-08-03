@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .model import (
     BatchCreateTransformerRequest,
+    BatchCreateColumnsRequest,
+    BatchCreateColumnsResponse,
     CreateTransformerRequest,
     UpdateTransformerRequest,
     CreateTransformerColumnRequest,
@@ -291,11 +293,17 @@ async def update_transformer(
 
 
 @router.post("/{transformer_id}/columns", tags=["transformer"])
-async def create_transformer_column(
+async def create_transformer_columns(
     transformer_id: str,
-    request: CreateTransformerColumnRequest,
+    request: BatchCreateColumnsRequest,
     service: TransformerService = Depends(),
 ):
+    """
+    Create multiple transformer columns in batch.
+
+    This endpoint accepts an array of column definitions and creates them atomically.
+    All columns are validated before any creation. If validation fails, no columns are created.
+    """
     try:
         found, transformer = await service.get_transformer_by_id(transformer_id)
         if not found:
@@ -304,28 +312,33 @@ async def create_transformer_column(
                 raise HTTPException(status_code=404, detail=detail)
             raise HTTPException(status_code=500, detail=detail)
 
-        success, data = await service.create_transformer_column(
-            id=request.id,
-            transformer_ref=transformer["ref"],
-            target_column=request.target_column,
-            match_value=request.match_value,
-            vendor_match_field=request.vendor_match_field,
-            vendor_match_value=request.vendor_match_value,
-            operation=request.operation,
-            config=request.config,
-            default_value=request.default_value,
-            order=request.order,
+        # Validate all columns first (atomic validation)
+        is_valid, validated_columns, errors = await service.validate_batch_columns(
+            [col.model_dump() for col in request.columns]
         )
-        if not success:
+        if not is_valid:
             raise HTTPException(
-                status_code=400, detail=data.get("message", "Unknown error")
+                status_code=400,
+                detail={
+                    "message": "Validation failed for one or more columns",
+                    "errors": errors,
+                },
             )
 
-        return data
+        # Create all validated columns
+        result = await service.create_transformer_columns_batch(
+            transformer_ref=transformer["ref"],
+            columns=validated_columns,
+        )
+
+        return BatchCreateColumnsResponse(**result)
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Error creating transformer column")
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(
+            status_code=500, detail="Error creating transformer columns"
+        )
 
 
 @router.get("/{transformer_id}/columns/", tags=["transformer"])

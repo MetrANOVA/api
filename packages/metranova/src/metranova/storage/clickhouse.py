@@ -5,6 +5,7 @@ import os
 import re
 
 from .base import StorageEngine, CollectionField, CollectionType
+from ..container.kube import restart_deployment
 from admin_api.metadata.service import MetadataField
 from clickhouse_connect.driver.query import QueryResult
 
@@ -37,6 +38,10 @@ class Clickhouse(StorageEngine):
         self.password = os.getenv("CLICKHOUSE_PASSWORD", "")
         self.cluster_name = os.getenv("CLICKHOUSE_CLUSTER_NAME", None)
         self._cluster_info_cache: dict | None = None
+
+        self.container_manager = os.getenv("CONTAINER_MANAGER", "docker")
+        pipeline_deployments = os.getenv("PIPELINE_DEPLOYMENTS", "")
+        self.pipelines = [p.strip() for p in pipeline_deployments.split(",") if p.strip()]
 
         # self.is_connected = False
         self.client = None
@@ -1047,3 +1052,11 @@ class Clickhouse(StorageEngine):
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
         """)
+
+    async def restart_pipelines(self):
+        try:
+            if self.container_manager == "kubernetes":
+                for pl in self.pipelines:
+                    restart_deployment(pl)
+        except Exception as e:
+            logger.exception(e)

@@ -27,6 +27,17 @@ class CreateTransformerColumnRequest(BaseModel):
     order: int = Field(default=1, ge=0)
 
 
+class BatchCreateColumnsRequest(BaseModel):
+    columns: list[CreateTransformerColumnRequest] = Field(min_length=1)
+
+
+class BatchCreateColumnsResponse(BaseModel):
+    created: int
+    failed: int
+    results: list[dict] = Field(default_factory=list)
+    errors: list[dict] = Field(default_factory=list)
+
+
 class CreateTransformerWithColumnsRequest(CreateTransformerRequest):
     columns: list[CreateTransformerColumnRequest] = Field(default_factory=list)
 
