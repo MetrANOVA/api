@@ -104,10 +104,12 @@ def test_close_closes_client(monkeypatch):
 def test_create_returns_initialized_instance(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     state = {"connect": False, "database": None}
+    async_client = DummyAsyncClient()
 
     async def fake_connect(self, database: str | None = None):
         state["connect"] = True
         state["database"] = database
+        self.client = async_client
 
     monkeypatch.setattr(Clickhouse, "connect", fake_connect)
 

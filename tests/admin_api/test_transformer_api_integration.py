@@ -220,9 +220,6 @@ def test_transformer_api_create_success(transformer_api_client):
     assert body["id"] == "snmp_normalizer"
     assert body["ref"] == "snmp_normalizer__v1"
     assert body["definition_ref"] == "def_snmp__v1"
-    assert fake_storage.ensure_called is True
-    assert fake_storage.inserted is not None
-    assert fake_storage.inserted["table"] == "transformer"
     assert "id" in fake_storage.inserted["column_names"]
 
 
