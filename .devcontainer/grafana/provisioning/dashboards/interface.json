@@ -218,39 +218,73 @@
             "targets": [
                 {
                     "builderOptions": {
-                        "aggregates": [
-                            {
-                                "aggregateType": "avg",
-                                "alias": "",
-                                "column": "rx_bytes"
-                            },
-                            {
-                                "aggregateType": "avg",
-                                "column": "tx_bytes"
-                            }
-                        ],
+                        "aggregates": [],
                         "columns": [
                             {
                                 "alias": "insert_time",
+                                "custom": false,
+                                "name": "insert_time",
+                                "type": "DateTime"
+                            },
+                            {
+                                "alias": "tx_bytes",
+                                "custom": false,
+                                "name": "tx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "rx_bytes",
+                                "custom": false,
+                                "name": "rx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "node",
+                                "custom": false,
+                                "name": "node",
+                                "type": "String"
+                            },
+                            {
+                                "alias": "intf",
+                                "custom": false,
+                                "name": "intf",
+                                "type": "String"
+                            },
+                            {
                                 "hint": "time",
                                 "name": "insert_time",
                                 "type": "DateTime"
                             }
                         ],
                         "database": "metranova",
-                        "filters": [],
-                        "groupBy": [
-                            "insert_time",
-                            "node",
-                            "intf"
+                        "filters": [
+                            {
+                                "condition": "AND",
+                                "filterType": "custom",
+                                "hint": "time",
+                                "key": "",
+                                "operator": "WITH IN DASHBOARD TIME RANGE",
+                                "type": "datetime"
+                            }
                         ],
+                        "groupBy": [],
                         "limit": 1000,
                         "meta": {},
-                        "mode": "trend",
+                        "mode": "aggregate",
                         "orderBy": [
                             {
+                                "default": true,
                                 "dir": "ASC",
-                                "name": "insert_time"
+                                "hint": "time",
+                                "name": ""
+                            },
+                            {
+                                "dir": "ASC",
+                                "name": "node"
+                            },
+                            {
+                                "dir": "ASC",
+                                "name": "intf"
                             }
                         ],
                         "queryType": "timeseries",
@@ -263,7 +297,7 @@
                     "editorType": "builder",
                     "format": 0,
                     "pluginVersion": "4.20.0",
-                    "rawSql": "SELECT $__timeInterval(insert_time) as \"time\", insert_time, node, intf, avg(rx_bytes), avg(tx_bytes) FROM \"metranova\".\"data_interface\" GROUP BY insert_time, node, intf, time ORDER BY insert_time ASC LIMIT 1000",
+                    "rawSql": "SELECT insert_time as \"time\", insert_time, tx_bytes, rx_bytes, node, intf FROM \"metranova\".\"data_interface\" WHERE ( time >= $__fromTime AND time <= $__toTime ) ORDER BY time ASC, node ASC, intf ASC LIMIT 1000",
                     "refId": "A"
                 }
             ],
@@ -279,13 +313,13 @@
         "list": []
     },
     "time": {
-        "from": "now-1h",
+        "from": "now-30m",
         "to": "now"
     },
     "timepicker": {},
     "timezone": "browser",
     "title": "Node Overview",
     "uid": "adbtwx6",
-    "version": 3,
+    "version": 5,
     "weekStart": ""
 }

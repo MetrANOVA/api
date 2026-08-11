@@ -3,3 +3,4 @@
 *.py[cod]
 *.pytest_cache/
 .claude
+.devcontainer/telegraf/telegraf.d/*.toml

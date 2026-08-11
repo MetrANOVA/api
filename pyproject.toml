@@ -7,8 +7,9 @@ requires-python = ">=3.14"
 dependencies = [
 	"metranova-core",
 	"fastapi (>=0.120.0,<0.128.1)",
-    "uvicorn[standard] (>=0.34.0,<0.35.0)",
-    "python-json-logger>=3.3.0",
+	"uvicorn[standard] (>=0.34.0,<0.35.0)",
+	"python-json-logger>=3.3.0",
+	"tomli-w>=1.2.0",
 ]
 
 [dependency-groups]

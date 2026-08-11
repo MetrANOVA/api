@@ -12,6 +12,7 @@ from .settings import get_settings
 from admin_api.resource_type.router import (
     router as resource_type_router,
 )
+from admin_api.collector.router import router as collector_router
 from admin_api.metadata.router import router as metadata_router
 from admin_api.transformer.router import router as transformer_router
 from .context import lifespan, get_clickhouse
@@ -75,6 +76,7 @@ async def health(clickhouse: Annotated[Any, Depends(get_clickhouse)]):
 
 
 # Add routers here
+app.include_router(collector_router, prefix="/collector", tags=["collector"])
 app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])
 app.include_router(metadata_router, prefix="/metadata")
 app.include_router(transformer_router, prefix="/transformers")
