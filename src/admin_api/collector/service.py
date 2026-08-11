@@ -1,6 +1,7 @@
 import logging
 import re
 
+from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
 import tomli_w
@@ -140,6 +141,15 @@ class CollectorService:
     def __init__(self, storage: "Clickhouse"):
         self.storage = storage
         self.client = storage.client
+
+        self.plugins = {}
+        for ep in entry_points(group="metranova.collector.plugins"):
+            plugin_cls = ep.load()
+            logger.info(f"Loaded {plugin_cls.plugin_type} plugin {plugin_cls.__name__}")
+            self.plugins[plugin_cls.__name__] = plugin_cls()
+        logger.info(
+            f"Loaded {len(self.plugins)} collector plugins: {list(self.plugins)}"
+        )
 
     async def _declared_field_names(self, resource_type: str) -> set[str]:
         """Field names declared by the referenced resource type definition."""

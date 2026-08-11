@@ -45,3 +45,6 @@ force-exclude = '''
 
 [tool.fastapi]
 entrypoint = "admin_api.app:app"
+
+[project.entry-points."metranova.collector.plugins"]
+telegraf_vscode = "admin_api.collector.plugins.telegraf_vscode:TelegrafVscode"
