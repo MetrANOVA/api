@@ -1,7 +1,7 @@
 import logging
 
-from fastapi import APIRouter, Body, Request, HTTPException
-from admin_api.collector.model import FieldConfig, Selector
+from fastapi import APIRouter, Request, HTTPException
+from admin_api.collector.model import ResourceConfigurationRequest
 from admin_api.collector.service import CollectorService
 
 logger = logging.getLogger(__name__)
@@ -26,30 +26,17 @@ async def get_collector_resource_configurations(req: Request, name: str):
 
 @router.post("/plugins/{name}/resource_configurations")
 async def create_collector_resource_configuration(
-    req: Request, name: str, config: dict = Body(...)
+    req: Request, name: str, config: ResourceConfigurationRequest
 ):
     """Create a new collector resource configuration.
 
-    Expects a JSON body with the configuration details. The plugin name comes
-    from the path; `id`/`ref` are assigned by the server.
+    Expects a JSON body with the configuration details. `id`/`ref` are assigned
+    by the server.
     """
     try:
         metadata = CollectorService(req.app.state.se)
 
-        field_mappings = {
-            k: FieldConfig(**v) for k, v in (config.get("field_mappings") or {}).items()
-        }
-        node_selectors = [Selector(**s) for s in (config.get("node_selectors") or [])]
-
-        success, result = await metadata.create_resource_configuration(
-            name=config["name"],
-            resource_type=config["resource_type"],
-            collector_plugin=config.get("collector_plugin", name),
-            field_mappings=field_mappings,
-            node_selectors=node_selectors,
-            interval=config.get("interval", 60),
-            timeout=config.get("timeout", 15),
-        )
+        success, result = await metadata.create_resource_configuration(config)
         if not success:
             raise HTTPException(status_code=400, detail=result["message"])
 

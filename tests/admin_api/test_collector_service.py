@@ -1,7 +1,16 @@
 import asyncio
 from types import SimpleNamespace
 
-from admin_api.collector.model import FieldConfig, ResourceConfiguration, Selector
+import pytest
+from pydantic import ValidationError
+
+from admin_api.collector.model import (
+    FieldConfig,
+    ResourceConfiguration,
+    ResourceConfigurationRequest,
+    ResourceConfigurationUpdate,
+    Selector,
+)
 from admin_api.collector.service import CollectorService, _from_row, _to_row
 
 INTERFACE_DEFINITION = {
@@ -65,7 +74,7 @@ def _config(**overrides) -> ResourceConfiguration:
         collector_plugin="telegraf_vscode",
         interval=10,
         timeout=15,
-        resource_type_field_mappings={
+        field_mappings={
             "intf": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.2", is_tag=True),
             "input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
             "output": FieldConfig(
@@ -78,6 +87,16 @@ def _config(**overrides) -> ResourceConfiguration:
     )
     defaults.update(overrides)
     return ResourceConfiguration(**defaults)
+
+
+def _request(**overrides) -> ResourceConfigurationRequest:
+    defaults = dict(
+        name="example telegraf",
+        resource_type="interface",
+        collector_plugin="telegraf_vscode",
+    )
+    defaults.update(overrides)
+    return ResourceConfigurationRequest(**defaults)
 
 
 def _stored_row(config: ResourceConfiguration) -> dict:
@@ -93,13 +112,11 @@ def test_to_row_from_row_round_trip_preserves_mappings_and_nulls():
     restored = _from_row(_stored_row(original))
 
     assert restored == original
-    assert restored.resource_type_field_mappings["input"].secondary_index_table is None
-    assert restored.resource_type_field_mappings["input"].secondary_index_use is None
-    assert restored.resource_type_field_mappings["output"].secondary_index_table == (
-        "ifXTable"
-    )
-    assert restored.resource_type_field_mappings["output"].secondary_index_use is True
-    assert restored.resource_type_field_mappings["intf"].is_tag is True
+    assert restored.field_mappings["input"].secondary_index_table is None
+    assert restored.field_mappings["input"].secondary_index_use is None
+    assert restored.field_mappings["output"].secondary_index_table == ("ifXTable")
+    assert restored.field_mappings["output"].secondary_index_use is True
+    assert restored.field_mappings["intf"].is_tag is True
 
 
 def test_from_row_accepts_positional_tuples():
@@ -123,12 +140,11 @@ def test_create_assigns_v1_ref_and_inserts():
 
     success, result = asyncio.run(
         service.create_resource_configuration(
-            name="example telegraf",
-            resource_type="interface",
-            collector_plugin="telegraf_vscode",
-            field_mappings={"input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10")},
-            node_selectors=[Selector(type="role", value="rtr")],
-            interval=10,
+            _request(
+                field_mappings={"input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10")},
+                node_selectors=[Selector(type="role", value="rtr")],
+                interval=10,
+            )
         )
     )
 
@@ -152,13 +168,7 @@ def test_create_rejects_duplicate_slug():
     storage = DummyStorage(query_results=[[{"id": "example_telegraf"}]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.create_resource_configuration(
-            name="example telegraf",
-            resource_type="interface",
-            collector_plugin="telegraf_vscode",
-        )
-    )
+    success, result = asyncio.run(service.create_resource_configuration(_request()))
 
     assert success is False
     assert "already exists" in result["message"]
@@ -171,14 +181,13 @@ def test_create_rejects_field_not_declared_by_resource_type():
 
     success, result = asyncio.run(
         service.create_resource_configuration(
-            name="example telegraf",
-            resource_type="interface",
-            collector_plugin="telegraf_vscode",
-            field_mappings={
-                "input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
-                "rx_bytes": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
-                "oper_status": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.8"),
-            },
+            _request(
+                field_mappings={
+                    "input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
+                    "rx_bytes": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
+                    "oper_status": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.8"),
+                }
+            )
         )
     )
 
@@ -192,11 +201,7 @@ def test_create_rejects_unknown_resource_type():
     service = CollectorService(storage)
 
     success, result = asyncio.run(
-        service.create_resource_configuration(
-            name="example telegraf",
-            resource_type="nonexistent",
-            collector_plugin="telegraf_vscode",
-        )
+        service.create_resource_configuration(_request(resource_type="nonexistent"))
     )
 
     assert success is False
@@ -209,7 +214,9 @@ def test_update_appends_v2_snapshot_without_mutating():
     service = CollectorService(storage)
 
     success, result = asyncio.run(
-        service.update_resource_configuration("example_telegraf", interval=30)
+        service.update_resource_configuration(
+            "example_telegraf", ResourceConfigurationUpdate(interval=30)
+        )
     )
 
     assert success is True
@@ -219,7 +226,7 @@ def test_update_appends_v2_snapshot_without_mutating():
     # untouched fields carry over
     assert result.collector_plugin == "telegraf_vscode"
     assert result.timeout == 15
-    assert result.resource_type_field_mappings == current.resource_type_field_mappings
+    assert result.field_mappings == current.field_mappings
     # append-only: an insert, never an ALTER
     assert len(storage.client.insert_calls) == 1
 
@@ -231,7 +238,9 @@ def test_update_rejects_invalid_field_mappings():
     success, result = asyncio.run(
         service.update_resource_configuration(
             "example_telegraf",
-            field_mappings={"bogus": FieldConfig(oid=".1.2.3")},
+            ResourceConfigurationUpdate(
+                field_mappings={"bogus": FieldConfig(oid=".1.2.3")}
+            ),
         )
     )
 
@@ -245,11 +254,42 @@ def test_update_requires_at_least_one_field():
     service = CollectorService(storage)
 
     success, result = asyncio.run(
-        service.update_resource_configuration("example_telegraf")
+        service.update_resource_configuration(
+            "example_telegraf", ResourceConfigurationUpdate()
+        )
     )
 
     assert success is False
     assert result["message"] == "No fields provided to update"
+
+
+def test_request_model_rejects_blank_name():
+    # Previously a missing/blank name surfaced as a bare KeyError in the router.
+    with pytest.raises(ValidationError):
+        ResourceConfigurationRequest(
+            name="",
+            resource_type="interface",
+            collector_plugin="telegraf_vscode",
+        )
+
+    with pytest.raises(ValidationError):
+        ResourceConfigurationRequest(resource_type="interface")
+
+
+def test_update_treats_explicit_nulls_as_unchanged():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    service = CollectorService(storage)
+
+    success, result = asyncio.run(
+        service.update_resource_configuration(
+            "example_telegraf",
+            ResourceConfigurationUpdate(name=None, interval=None),
+        )
+    )
+
+    assert success is False
+    assert result["message"] == "No fields provided to update"
+    assert storage.client.insert_calls == []
 
 
 def test_update_reports_missing_configuration():
@@ -257,7 +297,9 @@ def test_update_reports_missing_configuration():
     service = CollectorService(storage)
 
     success, result = asyncio.run(
-        service.update_resource_configuration("nope", interval=30)
+        service.update_resource_configuration(
+            "nope", ResourceConfigurationUpdate(interval=30)
+        )
     )
 
     assert success is False
@@ -274,6 +316,10 @@ def test_get_collector_configurations_returns_latest_per_id():
     assert [c.id for c in configs] == ["example_telegraf", "other"]
     query, _ = storage.client.query_calls[0]
     assert "LIMIT 1 BY id" in query
+    # Ordered by ref version, not updated_at: DateTime is second-granular, so
+    # two versions written in the same second would tie and pick arbitrarily.
+    assert "extract(ref" in query
+    assert "updated_at DESC" not in query
 
 
 def test_get_collector_configurations_filters_by_plugin():

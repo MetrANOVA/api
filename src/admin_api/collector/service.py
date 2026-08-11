@@ -10,7 +10,13 @@ from admin_api.resource_type.router import (
     _existing_meta_field_names,
 )
 
-from .model import FieldConfig, ResourceConfiguration, Selector
+from .model import (
+    FieldConfig,
+    ResourceConfiguration,
+    ResourceConfigurationRequest,
+    ResourceConfigurationUpdate,
+    Selector,
+)
 
 if TYPE_CHECKING:
     from metranova.storage.clickhouse import Clickhouse
@@ -35,6 +41,11 @@ COLUMNS = [
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# Order snapshots by the numeric suffix of `ref`, not by `updated_at`: DateTime
+# has second granularity, so two versions written in the same second tie and the
+# "latest" row is picked arbitrarily.
+_VERSION_EXPR = r"toUInt32OrZero(extract(ref, '__v(\\d+)$'))"
+
 
 def slugify(name: str) -> str:
     return name.lower().replace(" ", "_")
@@ -58,7 +69,7 @@ def _to_row(config: ResourceConfiguration) -> dict[str, Any]:
             fc.secondary_index_table,
             fc.secondary_index_use,
         )
-        for field_name, fc in sorted(config.resource_type_field_mappings.items())
+        for field_name, fc in sorted(config.field_mappings.items())
     ]
     node_selectors = [(s.type, s.value) for s in config.node_selectors]
 
@@ -110,7 +121,7 @@ def _from_row(row) -> ResourceConfiguration:
         collector_plugin=row["collector_plugin"],
         interval=row["interval"],
         timeout=row["timeout"],
-        resource_type_field_mappings=field_mappings,
+        field_mappings=field_mappings,
         node_selectors=node_selectors,
     )
 
@@ -175,12 +186,12 @@ class CollectorService:
             result = await self.storage.client.query(
                 select
                 + " WHERE collector_plugin = {plugin:String}"
-                + " ORDER BY updated_at DESC LIMIT 1 BY id",
+                + f" ORDER BY {_VERSION_EXPR} DESC LIMIT 1 BY id",
                 parameters={"plugin": collector_plugin},
             )
         else:
             result = await self.storage.client.query(
-                select + " ORDER BY updated_at DESC LIMIT 1 BY id",
+                select + f" ORDER BY {_VERSION_EXPR} DESC LIMIT 1 BY id",
                 parameters={},
             )
 
@@ -195,7 +206,7 @@ class CollectorService:
         table_name = self.storage._qualified_table_name(TABLE)
         result = await self.storage.client.query(
             f"SELECT {', '.join(COLUMNS)} FROM {table_name}"
-            + " WHERE id = {id:String} ORDER BY updated_at DESC LIMIT 1",
+            + f" WHERE id = {{id:String}} ORDER BY {_VERSION_EXPR} DESC LIMIT 1",
             parameters={"id": config_id},
         )
 
@@ -207,23 +218,13 @@ class CollectorService:
         return True, _from_row(rows[0])
 
     async def create_resource_configuration(
-        self,
-        name: str,
-        resource_type: str,
-        collector_plugin: str,
-        field_mappings: dict[str, FieldConfig] | None = None,
-        node_selectors: list[Selector] | None = None,
-        interval: int = 60,
-        timeout: int = 15,
+        self, request: ResourceConfigurationRequest
     ) -> tuple[bool, Any]:
         """Persist a new resource configuration as its first snapshot."""
         await self.storage.ensure_resource_configuration_table()
 
-        field_mappings = field_mappings or {}
-        node_selectors = node_selectors or []
-
         try:
-            slug = slugify(name)
+            slug = slugify(request.name)
             table_name = self.storage._qualified_table_name(TABLE)
 
             result = await self.storage.client.query(
@@ -234,18 +235,12 @@ class CollectorService:
             if result.row_count != 0:
                 raise ValueError("A record with that id or slug already exists")
 
-            await self._validate_field_mappings(resource_type, field_mappings)
+            await self._validate_field_mappings(
+                request.resource_type, request.field_mappings
+            )
 
             config = ResourceConfiguration(
-                id=slug,
-                ref=f"{slug}__v1",
-                name=name,
-                resource_type=resource_type,
-                collector_plugin=collector_plugin,
-                interval=interval,
-                timeout=timeout,
-                resource_type_field_mappings=field_mappings,
-                node_selectors=node_selectors,
+                id=slug, ref=f"{slug}__v1", **request.model_dump()
             )
             return True, await self._insert(config)
         except Exception as e:
@@ -253,14 +248,7 @@ class CollectorService:
             return False, {"message": f"Error creating resource configuration: {e}"}
 
     async def update_resource_configuration(
-        self,
-        config_id: str,
-        name: str | None = None,
-        collector_plugin: str | None = None,
-        field_mappings: dict[str, FieldConfig] | None = None,
-        node_selectors: list[Selector] | None = None,
-        interval: int | None = None,
-        timeout: int | None = None,
+        self, config_id: str, request: ResourceConfigurationUpdate
     ) -> tuple[bool, Any]:
         """Append a new snapshot of an existing configuration.
 
@@ -274,46 +262,20 @@ class CollectorService:
             if not found:
                 return False, current
 
-            if all(
-                v is None
-                for v in (
-                    name,
-                    collector_plugin,
-                    field_mappings,
-                    node_selectors,
-                    interval,
-                    timeout,
-                )
-            ):
+            updates = request.model_dump(exclude_none=True)
+            if not updates:
                 return False, {"message": "No fields provided to update"}
 
-            if field_mappings is not None:
+            if "field_mappings" in updates:
                 await self._validate_field_mappings(
-                    current.resource_type, field_mappings
+                    current.resource_type, request.field_mappings
                 )
 
+            # Merge through the constructor rather than model_copy: model_dump
+            # flattens the nested models to dicts and model_copy does not
+            # revalidate, which would leave raw dicts in field_mappings.
             config = ResourceConfiguration(
-                id=current.id,
-                ref=_bump_ref(current.ref),
-                name=name if name is not None else current.name,
-                resource_type=current.resource_type,
-                collector_plugin=(
-                    collector_plugin
-                    if collector_plugin is not None
-                    else current.collector_plugin
-                ),
-                interval=interval if interval is not None else current.interval,
-                timeout=timeout if timeout is not None else current.timeout,
-                resource_type_field_mappings=(
-                    field_mappings
-                    if field_mappings is not None
-                    else current.resource_type_field_mappings
-                ),
-                node_selectors=(
-                    node_selectors
-                    if node_selectors is not None
-                    else current.node_selectors
-                ),
+                **{**current.model_dump(), **updates, "ref": _bump_ref(current.ref)}
             )
             return True, await self._insert(config)
         except Exception as e:
@@ -361,7 +323,7 @@ class CollectorService:
         scalar_fields = [{"name": "node", "oid": ".1.3.6.1.2.1.1.5.0", "is_tag": True}]
         table_fields = []
 
-        for k, oid in config.resource_type_field_mappings.items():
+        for k, oid in config.field_mappings.items():
             is_scalar = oid.oid.endswith(".0")
             entry: dict[str, Any] = {
                 "name": k,
