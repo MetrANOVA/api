@@ -199,8 +199,12 @@ class CollectorService:
 
     async def get_resource_configuration_by_id(
         self, config_id: str
-    ) -> tuple[bool, Any]:
-        """Return the latest snapshot for a single configuration id."""
+    ) -> ResourceConfiguration:
+        """Return the latest snapshot for a single configuration id.
+
+        Raises:
+            LookupError: no configuration is stored under that id.
+        """
         await self.storage.ensure_resource_configuration_table()
 
         table_name = self.storage._qualified_table_name(TABLE)
@@ -212,75 +216,74 @@ class CollectorService:
 
         rows = _rows(result)
         if not rows:
-            return False, {
-                "message": f"Resource configuration with id '{config_id}' not found"
-            }
-        return True, _from_row(rows[0])
+            raise LookupError(f"Resource configuration with id '{config_id}' not found")
+        return _from_row(rows[0])
 
     async def create_resource_configuration(
         self, request: ResourceConfigurationRequest
-    ) -> tuple[bool, Any]:
-        """Persist a new resource configuration as its first snapshot."""
+    ) -> ResourceConfiguration:
+        """Persist a new resource configuration as its first snapshot.
+
+        Raises:
+            ValueError: the name collides with an existing configuration, or a
+                field mapping names a field the resource type does not declare.
+            LookupError: the referenced resource type does not exist.
+        """
         await self.storage.ensure_resource_configuration_table()
 
-        try:
-            slug = slugify(request.name)
-            table_name = self.storage._qualified_table_name(TABLE)
+        slug = slugify(request.name)
+        table_name = self.storage._qualified_table_name(TABLE)
 
-            result = await self.storage.client.query(
-                f"SELECT id FROM {table_name}"
-                + " WHERE id = {s:String} OR slug = {s:String}",
-                parameters={"s": slug},
-            )
-            if result.row_count != 0:
-                raise ValueError("A record with that id or slug already exists")
+        result = await self.storage.client.query(
+            f"SELECT id FROM {table_name}"
+            + " WHERE id = {s:String} OR slug = {s:String}",
+            parameters={"s": slug},
+        )
+        if result.row_count != 0:
+            raise ValueError("A record with that id or slug already exists")
 
-            await self._validate_field_mappings(
-                request.resource_type, request.field_mappings
-            )
+        await self._validate_field_mappings(
+            request.resource_type, request.field_mappings
+        )
 
-            config = ResourceConfiguration(
-                id=slug, ref=f"{slug}__v1", **request.model_dump()
-            )
-            return True, await self._insert(config)
-        except Exception as e:
-            logger.exception("Error creating resource configuration")
-            return False, {"message": f"Error creating resource configuration: {e}"}
+        config = ResourceConfiguration(
+            id=slug, ref=f"{slug}__v1", **request.model_dump()
+        )
+        return await self._insert(config)
 
     async def update_resource_configuration(
         self, config_id: str, request: ResourceConfigurationUpdate
-    ) -> tuple[bool, Any]:
+    ) -> ResourceConfiguration:
         """Append a new snapshot of an existing configuration.
 
         `None` means "leave unchanged". The resource type is immutable — a
         configuration for a different type is a different configuration.
+
+        Raises:
+            ValueError: the request carries no updates, or a field mapping names
+                a field the resource type does not declare.
+            LookupError: no configuration is stored under that id.
         """
         await self.storage.ensure_resource_configuration_table()
 
-        try:
-            found, current = await self.get_resource_configuration_by_id(config_id)
-            if not found:
-                return False, current
+        current = await self.get_resource_configuration_by_id(config_id)
 
-            updates = request.model_dump(exclude_none=True)
-            if not updates:
-                return False, {"message": "No fields provided to update"}
+        updates = request.model_dump(exclude_none=True)
+        if not updates:
+            raise ValueError("No fields provided to update")
 
-            if "field_mappings" in updates:
-                await self._validate_field_mappings(
-                    current.resource_type, request.field_mappings
-                )
-
-            # Merge through the constructor rather than model_copy: model_dump
-            # flattens the nested models to dicts and model_copy does not
-            # revalidate, which would leave raw dicts in field_mappings.
-            config = ResourceConfiguration(
-                **{**current.model_dump(), **updates, "ref": _bump_ref(current.ref)}
+        if "field_mappings" in updates:
+            await self._validate_field_mappings(
+                current.resource_type, request.field_mappings
             )
-            return True, await self._insert(config)
-        except Exception as e:
-            logger.exception("Error updating resource configuration")
-            return False, {"message": f"Error updating resource configuration: {e}"}
+
+        # Merge through the constructor rather than model_copy: model_dump
+        # flattens the nested models to dicts and model_copy does not
+        # revalidate, which would leave raw dicts in field_mappings.
+        config = ResourceConfiguration(
+            **{**current.model_dump(), **updates, "ref": _bump_ref(current.ref)}
+        )
+        return await self._insert(config)
 
     async def generate_configuration(self, c: ResourceConfiguration):
         config = self.generate_telegraf_config(

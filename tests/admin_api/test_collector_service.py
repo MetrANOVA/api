@@ -138,7 +138,7 @@ def test_create_assigns_v1_ref_and_inserts():
     storage = DummyStorage(query_results=[[]])  # no existing row with that slug
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
+    result = asyncio.run(
         service.create_resource_configuration(
             _request(
                 field_mappings={"input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10")},
@@ -148,7 +148,6 @@ def test_create_assigns_v1_ref_and_inserts():
         )
     )
 
-    assert success is True
     assert result.id == "example_telegraf"
     assert result.ref == "example_telegraf__v1"
     assert result.interval == 10
@@ -168,10 +167,9 @@ def test_create_rejects_duplicate_slug():
     storage = DummyStorage(query_results=[[{"id": "example_telegraf"}]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(service.create_resource_configuration(_request()))
+    with pytest.raises(ValueError, match="already exists"):
+        asyncio.run(service.create_resource_configuration(_request()))
 
-    assert success is False
-    assert "already exists" in result["message"]
     assert storage.client.insert_calls == []
 
 
@@ -179,20 +177,19 @@ def test_create_rejects_field_not_declared_by_resource_type():
     storage = DummyStorage(query_results=[[]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.create_resource_configuration(
-            _request(
-                field_mappings={
-                    "input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
-                    "rx_bytes": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
-                    "oper_status": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.8"),
-                }
+    with pytest.raises(ValueError, match="oper_status, rx_bytes"):
+        asyncio.run(
+            service.create_resource_configuration(
+                _request(
+                    field_mappings={
+                        "input": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
+                        "rx_bytes": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.10"),
+                        "oper_status": FieldConfig(oid=".1.3.6.1.2.1.2.2.1.8"),
+                    }
+                )
             )
         )
-    )
 
-    assert success is False
-    assert "oper_status, rx_bytes" in result["message"]
     assert storage.client.insert_calls == []
 
 
@@ -200,12 +197,10 @@ def test_create_rejects_unknown_resource_type():
     storage = DummyStorage(query_results=[[]], definition=None)
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.create_resource_configuration(_request(resource_type="nonexistent"))
-    )
-
-    assert success is False
-    assert "No resource type with slug 'nonexistent'" in result["message"]
+    with pytest.raises(LookupError, match="No resource type with slug 'nonexistent'"):
+        asyncio.run(
+            service.create_resource_configuration(_request(resource_type="nonexistent"))
+        )
 
 
 def test_update_appends_v2_snapshot_without_mutating():
@@ -213,13 +208,12 @@ def test_update_appends_v2_snapshot_without_mutating():
     storage = DummyStorage(query_results=[[_stored_row(current)]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
+    result = asyncio.run(
         service.update_resource_configuration(
             "example_telegraf", ResourceConfigurationUpdate(interval=30)
         )
     )
 
-    assert success is True
     assert result.ref == "example_telegraf__v2"
     assert result.id == "example_telegraf"
     assert result.interval == 30
@@ -235,17 +229,16 @@ def test_update_rejects_invalid_field_mappings():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.update_resource_configuration(
-            "example_telegraf",
-            ResourceConfigurationUpdate(
-                field_mappings={"bogus": FieldConfig(oid=".1.2.3")}
-            ),
+    with pytest.raises(ValueError, match="bogus"):
+        asyncio.run(
+            service.update_resource_configuration(
+                "example_telegraf",
+                ResourceConfigurationUpdate(
+                    field_mappings={"bogus": FieldConfig(oid=".1.2.3")}
+                ),
+            )
         )
-    )
 
-    assert success is False
-    assert "bogus" in result["message"]
     assert storage.client.insert_calls == []
 
 
@@ -253,14 +246,12 @@ def test_update_requires_at_least_one_field():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.update_resource_configuration(
-            "example_telegraf", ResourceConfigurationUpdate()
+    with pytest.raises(ValueError, match="^No fields provided to update$"):
+        asyncio.run(
+            service.update_resource_configuration(
+                "example_telegraf", ResourceConfigurationUpdate()
+            )
         )
-    )
-
-    assert success is False
-    assert result["message"] == "No fields provided to update"
 
 
 def test_request_model_rejects_blank_name():
@@ -280,15 +271,14 @@ def test_update_treats_explicit_nulls_as_unchanged():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.update_resource_configuration(
-            "example_telegraf",
-            ResourceConfigurationUpdate(name=None, interval=None),
+    with pytest.raises(ValueError, match="^No fields provided to update$"):
+        asyncio.run(
+            service.update_resource_configuration(
+                "example_telegraf",
+                ResourceConfigurationUpdate(name=None, interval=None),
+            )
         )
-    )
 
-    assert success is False
-    assert result["message"] == "No fields provided to update"
     assert storage.client.insert_calls == []
 
 
@@ -296,14 +286,12 @@ def test_update_reports_missing_configuration():
     storage = DummyStorage(query_results=[[]])
     service = CollectorService(storage)
 
-    success, result = asyncio.run(
-        service.update_resource_configuration(
-            "nope", ResourceConfigurationUpdate(interval=30)
+    with pytest.raises(LookupError, match="not found"):
+        asyncio.run(
+            service.update_resource_configuration(
+                "nope", ResourceConfigurationUpdate(interval=30)
+            )
         )
-    )
-
-    assert success is False
-    assert "not found" in result["message"]
 
 
 def test_get_collector_configurations_returns_latest_per_id():
@@ -339,12 +327,17 @@ def test_get_resource_configuration_by_id_returns_model():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = CollectorService(storage)
 
-    found, config = asyncio.run(
-        service.get_resource_configuration_by_id("example_telegraf")
-    )
+    config = asyncio.run(service.get_resource_configuration_by_id("example_telegraf"))
 
-    assert found is True
     assert config == _config()
+
+
+def test_get_resource_configuration_by_id_reports_missing():
+    storage = DummyStorage(query_results=[[]])
+    service = CollectorService(storage)
+
+    with pytest.raises(LookupError, match="not found"):
+        asyncio.run(service.get_resource_configuration_by_id("nope"))
 
 
 def test_generate_configuration_rejects_unsafe_resource_type():

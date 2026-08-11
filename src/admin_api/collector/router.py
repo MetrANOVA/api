@@ -35,14 +35,9 @@ async def create_collector_resource_configuration(
     """
     try:
         metadata = CollectorService(req.app.state.se)
-
-        success, result = await metadata.create_resource_configuration(config)
-        if not success:
-            raise HTTPException(status_code=400, detail=result["message"])
-
-        return result
-    except HTTPException:
-        raise
+        return await metadata.create_resource_configuration(config)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error creating collector resource configuration: {e}")
         raise HTTPException(
