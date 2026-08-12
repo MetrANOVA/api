@@ -145,8 +145,10 @@ class CollectorService:
         self.plugins = {}
         for ep in entry_points(group="metranova.collector.plugins"):
             plugin_cls = ep.load()
-            logger.info(f"Loaded {plugin_cls.plugin_type} plugin {plugin_cls.__name__}")
-            self.plugins[plugin_cls.__name__] = plugin_cls()
+            logger.info(
+                f"Loaded {plugin_cls.plugin_type} plugin {plugin_cls.plugin_id}"
+            )
+            self.plugins[plugin_cls.plugin_id] = plugin_cls()
         logger.info(
             f"Loaded {len(self.plugins)} collector plugins: {list(self.plugins)}"
         )
@@ -296,24 +298,25 @@ class CollectorService:
         return await self._insert(config)
 
     async def generate_configuration(self, c: ResourceConfiguration):
-        config = self.generate_telegraf_config(
-            c,
-            agents=["udp://snmp-simulator:161"],
-            version=2,
-            community="public",
-        )
+        return self.plugins[c.collector_plugin].render_config(c)
+        # config = self.generate_telegraf_config(
+        #     c,
+        #     agents=["udp://snmp-simulator:161"],
+        #     version=2,
+        #     community="public",
+        # )
 
-        toml_config = tomli_w.dumps(config)
+        # toml_config = tomli_w.dumps(config)
 
-        # resource_type reaches us from the create payload — keep it out of the path
-        # unless it is a plain name.
-        if not _SAFE_NAME.match(c.resource_type):
-            raise ValueError(f"Unsafe resource type name: {c.resource_type!r}")
+        # # resource_type reaches us from the create payload — keep it out of the path
+        # # unless it is a plain name.
+        # if not _SAFE_NAME.match(c.resource_type):
+        #     raise ValueError(f"Unsafe resource type name: {c.resource_type!r}")
 
-        with open(f"/etc/telegraf/telegraf.d/{c.resource_type}.toml", "w") as f:
-            f.write(toml_config)
+        # with open(f"/etc/telegraf/telegraf.d/{c.resource_type}.toml", "w") as f:
+        #     f.write(toml_config)
 
-        return toml_config
+        # return toml_config
 
     def generate_telegraf_config(
         self,

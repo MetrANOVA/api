@@ -60,7 +60,7 @@ async def get_collector_resource_configuration_example(req: Request, name: str):
                 status_code=404,
                 detail=f"No resource configurations stored for plugin '{name}'",
             )
-        return await metadata.generate_configuration(configs[0])
+        return [await metadata.generate_configuration(c) for c in configs]
     except HTTPException:
         raise
     except Exception as e:
