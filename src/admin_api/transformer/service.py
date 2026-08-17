@@ -206,6 +206,14 @@ class TransformerService:
             if operation not in operations:
                 raise Exception("Unknown operation: " + operation)
 
+            existing_column = await self.storage.client.query(
+                f"SELECT id from {self.storage._qualified_table_name('transformer_column')}"
+                + " WHERE id = {id:String}",
+                parameters={"id": id},
+            )
+            if existing_column.row_count > 0:
+                raise Exception(f"A column with id {id} already exists")
+
             # Validate config against operation schema
             is_valid, error_message = validate_config(operation, config)
             if not is_valid:
