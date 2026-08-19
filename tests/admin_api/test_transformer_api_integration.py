@@ -414,7 +414,7 @@ def test_transformer_columns_create_uses_transformer_ref(transformer_api_client)
         json={
             "columns": [
                 {
-                    "id": "map_utilization",
+                    "id": "map_new_utilization",
                     "target_column": "utilization",
                     "match_value": None,
                     "vendor_match_field": None,
@@ -433,7 +433,7 @@ def test_transformer_columns_create_uses_transformer_ref(transformer_api_client)
     assert body["created"] == 1
     assert body["failed"] == 0
     assert len(body["results"]) == 1
-    assert body["results"][0]["id"] == "map_utilization"
+    assert body["results"][0]["id"] == "map_new_utilization"
     assert body["results"][0]["transformer_ref"] == "snmp_normalizer__v1"
     assert fake_storage.inserted is not None
     assert fake_storage.inserted["table"] == "transformer_column"
