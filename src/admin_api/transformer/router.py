@@ -325,6 +325,18 @@ async def create_transformer_columns(
                 },
             )
 
+        for col in validated_columns:
+            existing_column = await service.get_transformer_column_by_id(
+                transformer_ref=transformer["ref"], column_id=col["id"]
+            )
+            if existing_column[0] is True:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": f"A column with the id {col['id']} already exists"
+                    },
+                )
+
         # Create all validated columns
         result = await service.create_transformer_columns_batch(
             transformer_ref=transformer["ref"],
