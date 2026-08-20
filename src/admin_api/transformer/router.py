@@ -231,6 +231,8 @@ async def create_transformer(
             )
 
         return data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating transformer: {e}")
 

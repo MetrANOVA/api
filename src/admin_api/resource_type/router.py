@@ -254,7 +254,7 @@ async def get_resource_type_by_slug(
 
     if result is None:
         raise HTTPException(
-            status_code=404,
+            status_code=500,
             detail=f"Resource type with slug '{slug}' not found",
         )
 
@@ -346,5 +346,9 @@ async def get_identifiers_for_type(
         table_type = "meta"
     query = f"SELECT DISTINCT {','.join(ids)} FROM {se._qualified_table_name(f'{table_type}_{slug}' )} WHERE insert_time >= now() - INTERVAL 1 HOUR;"
     logger.info(query)
-    results = await se.client.query(query)
-    return list(results.named_results())
+    try:
+        results = await se.client.query(query)
+        return list(results.named_results())
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=e)
