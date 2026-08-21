@@ -175,6 +175,21 @@ class CollectorService:
                 f"{', '.join(unknown)}. Declared fields: {', '.join(sorted(declared))}"
             )
 
+    @staticmethod
+    def _assert_owned_by(
+        config: ResourceConfiguration, collector_plugin: str | None
+    ) -> None:
+        """Raise if `config` belongs to a plugin other than the one asked for.
+
+        A configuration addressed through the wrong plugin's URL is reported as
+        missing rather than forbidden — the plugin scopes the namespace.
+        """
+        if collector_plugin is not None and config.collector_plugin != collector_plugin:
+            raise LookupError(
+                f"Resource configuration with id '{config.id}' not found for "
+                f"plugin '{collector_plugin}'"
+            )
+
     async def _insert(self, config: ResourceConfiguration) -> ResourceConfiguration:
         data = _to_row(config)
         await self.storage.client.insert(
@@ -264,21 +279,36 @@ class CollectorService:
         return await self._insert(config)
 
     async def update_resource_configuration(
-        self, config_id: str, request: ResourceConfigurationUpdate
+        self,
+        config_id: str,
+        request: ResourceConfigurationUpdate,
+        collector_plugin: str | None = None,
     ) -> ResourceConfiguration:
-        """Append a new snapshot of an existing configuration.
+        """Append a new snapshot of an existing configuration and re-render it.
 
         `None` means "leave unchanged". The resource type is immutable — a
         configuration for a different type is a different configuration.
 
+        The snapshot is written first and rendered afterwards. A render failure
+        is logged, not raised: the insert is append-only and cannot be rolled
+        back, so the new version stands regardless.
+
+        Args:
+            config_id: Stable id shared by all versions of the configuration.
+            request: Fields to change; `None` leaves the current value.
+            collector_plugin: When given, the update only applies to a
+                configuration owned by that plugin.
+
         Raises:
             ValueError: the request carries no updates, or a field mapping names
                 a field the resource type does not declare.
-            LookupError: no configuration is stored under that id.
+            LookupError: no configuration is stored under that id, or it belongs
+                to a different plugin.
         """
         await self.storage.ensure_resource_configuration_table()
 
         current = await self.get_resource_configuration_by_id(config_id)
+        self._assert_owned_by(current, collector_plugin)
 
         updates = request.model_dump(exclude_none=True)
         if not updates:
@@ -295,7 +325,14 @@ class CollectorService:
         config = ResourceConfiguration(
             **{**current.model_dump(), **updates, "ref": _bump_ref(current.ref)}
         )
-        return await self._insert(config)
+        await self._insert(config)
+
+        try:
+            await self.generate_configuration(config)
+        except Exception as e:
+            logger.exception(f"Error rendering configuration '{config.ref}': {e}")
+
+        return config
 
     async def delete_resource_configuration(
         self, config_id: str, collector_plugin: str | None = None
@@ -314,14 +351,7 @@ class CollectorService:
         await self.storage.ensure_resource_configuration_table()
 
         current = await self.get_resource_configuration_by_id(config_id)
-        if (
-            collector_plugin is not None
-            and current.collector_plugin != collector_plugin
-        ):
-            raise LookupError(
-                f"Resource configuration with id '{config_id}' not found for "
-                f"plugin '{collector_plugin}'"
-            )
+        self._assert_owned_by(current, collector_plugin)
 
         table_name = self.storage._qualified_table_name(TABLE)
         await self.storage.client.command(
@@ -335,7 +365,13 @@ class CollectorService:
         }
 
     async def generate_configuration(self, c: ResourceConfiguration):
-        return self.plugins[c.collector_plugin].render_config(c)
+        plugin = self.plugins.get(c.collector_plugin)
+        if plugin is None:
+            raise LookupError(
+                f"No collector plugin '{c.collector_plugin}' is registered. "
+                f"Available plugins: {', '.join(sorted(self.plugins)) or 'none'}"
+            )
+        return plugin.render_config(c)
         # config = self.generate_telegraf_config(
         #     c,
         #     agents=["udp://snmp-simulator:161"],

@@ -69,6 +69,30 @@ class DummyStorage:
         return self._definition
 
 
+class DummyPlugin:
+    """Stands in for a collector plugin so tests never write a config file."""
+
+    plugin_id = "telegraf_vscode"
+
+    def __init__(self, error=None):
+        self.error = error
+        self.rendered = []
+
+    def render_config(self, config):
+        if self.error:
+            raise self.error
+        self.rendered.append(config)
+        return "[rendered]"
+
+
+def _service(storage, plugin=None) -> CollectorService:
+    """A service whose plugin registry is a stub, not the entry-point plugins."""
+    service = CollectorService(storage)
+    plugin = plugin or DummyPlugin()
+    service.plugins = {plugin.plugin_id: plugin}
+    return service
+
+
 def _config(**overrides) -> ResourceConfiguration:
     defaults = dict(
         id="example_telegraf",
@@ -210,7 +234,7 @@ def test_create_rejects_unknown_resource_type():
 def test_update_appends_v2_snapshot_without_mutating():
     current = _config()
     storage = DummyStorage(query_results=[[_stored_row(current)]])
-    service = CollectorService(storage)
+    service = _service(storage)
 
     result = asyncio.run(
         service.update_resource_configuration(
@@ -231,7 +255,7 @@ def test_update_appends_v2_snapshot_without_mutating():
 
 def test_update_rejects_invalid_field_mappings():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
-    service = CollectorService(storage)
+    service = _service(storage)
 
     with pytest.raises(ValueError, match="bogus"):
         asyncio.run(
@@ -248,7 +272,7 @@ def test_update_rejects_invalid_field_mappings():
 
 def test_update_requires_at_least_one_field():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
-    service = CollectorService(storage)
+    service = _service(storage)
 
     with pytest.raises(ValueError, match="^No fields provided to update$"):
         asyncio.run(
@@ -273,7 +297,7 @@ def test_request_model_rejects_blank_name():
 
 def test_update_treats_explicit_nulls_as_unchanged():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
-    service = CollectorService(storage)
+    service = _service(storage)
 
     with pytest.raises(ValueError, match="^No fields provided to update$"):
         asyncio.run(
@@ -288,7 +312,7 @@ def test_update_treats_explicit_nulls_as_unchanged():
 
 def test_update_reports_missing_configuration():
     storage = DummyStorage(query_results=[[]])
-    service = CollectorService(storage)
+    service = _service(storage)
 
     with pytest.raises(LookupError, match="not found"):
         asyncio.run(
@@ -342,6 +366,57 @@ def test_get_resource_configuration_by_id_reports_missing():
 
     with pytest.raises(LookupError, match="not found"):
         asyncio.run(service.get_resource_configuration_by_id("nope"))
+
+
+def test_update_renders_the_new_snapshot():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    plugin = DummyPlugin()
+    service = _service(storage, plugin)
+
+    result = asyncio.run(
+        service.update_resource_configuration(
+            "example_telegraf",
+            ResourceConfigurationUpdate(interval=30),
+            collector_plugin="telegraf_vscode",
+        )
+    )
+
+    assert result.ref == "example_telegraf__v2"
+    # the render sees the merged v2, not the stored v1
+    assert [c.ref for c in plugin.rendered] == ["example_telegraf__v2"]
+    assert plugin.rendered[0].interval == 30
+
+
+def test_update_keeps_the_snapshot_when_rendering_fails():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    service = _service(storage, DummyPlugin(error=OSError("read-only file system")))
+
+    result = asyncio.run(
+        service.update_resource_configuration(
+            "example_telegraf", ResourceConfigurationUpdate(interval=30)
+        )
+    )
+
+    # The insert is append-only and cannot be rolled back, so the version stands
+    # and the render failure is logged rather than raised.
+    assert len(storage.client.insert_calls) == 1
+    assert result.ref == "example_telegraf__v2"
+
+
+def test_update_refuses_configuration_owned_by_another_plugin():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    service = _service(storage)
+
+    with pytest.raises(LookupError, match="not found for plugin 'other_plugin'"):
+        asyncio.run(
+            service.update_resource_configuration(
+                "example_telegraf",
+                ResourceConfigurationUpdate(interval=30),
+                collector_plugin="other_plugin",
+            )
+        )
+
+    assert storage.client.insert_calls == []
 
 
 def test_delete_removes_every_snapshot_of_the_id():

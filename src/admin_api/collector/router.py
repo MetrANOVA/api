@@ -1,7 +1,10 @@
 import logging
 
 from fastapi import APIRouter, Request, HTTPException
-from admin_api.collector.model import ResourceConfigurationRequest
+from admin_api.collector.model import (
+    ResourceConfigurationRequest,
+    ResourceConfigurationUpdate,
+)
 from admin_api.collector.service import CollectorService
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,33 @@ async def create_collector_resource_configuration(
         raise HTTPException(
             status_code=400,
             detail=f"Error creating collector resource configuration: {e}",
+        )
+
+
+@router.post("/plugins/{name}/resource_configurations/{config_id}")
+async def update_collector_resource_configuration(
+    req: Request, name: str, config_id: str, config: ResourceConfigurationUpdate
+):
+    """Append a new version of a collector resource configuration.
+
+    Omitted (or null) fields keep their current value. This is a POST rather
+    than a PUT because it is not a pure write: the new version is re-rendered
+    into the collector's configuration afterwards.
+    """
+    try:
+        metadata = CollectorService(req.app.state.se)
+        return await metadata.update_resource_configuration(
+            config_id, config, collector_plugin=name
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error updating collector resource configuration: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error updating collector resource configuration: {e}",
         )
 
 
