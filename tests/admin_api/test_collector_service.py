@@ -34,6 +34,7 @@ class DummyClient:
     def __init__(self, query_results=None):
         self.query_calls = []
         self.insert_calls = []
+        self.command_calls = []
         self.query_results = list(query_results or [])
 
     async def query(self, query, parameters=None):
@@ -46,6 +47,9 @@ class DummyClient:
 
     async def insert(self, **kwargs):
         self.insert_calls.append(kwargs)
+
+    async def command(self, command, parameters=None):
+        self.command_calls.append((command, parameters))
 
 
 class DummyStorage:
@@ -338,6 +342,48 @@ def test_get_resource_configuration_by_id_reports_missing():
 
     with pytest.raises(LookupError, match="not found"):
         asyncio.run(service.get_resource_configuration_by_id("nope"))
+
+
+def test_delete_removes_every_snapshot_of_the_id():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    service = CollectorService(storage)
+
+    result = asyncio.run(
+        service.delete_resource_configuration(
+            "example_telegraf", collector_plugin="telegraf_vscode"
+        )
+    )
+
+    assert result["id"] == "example_telegraf"
+    assert len(storage.client.command_calls) == 1
+    command, parameters = storage.client.command_calls[0]
+    # No ref predicate: every version of the id goes, not just the latest.
+    assert "DELETE WHERE id = {id:String}" in command
+    assert parameters == {"id": "example_telegraf"}
+
+
+def test_delete_reports_missing_configuration():
+    storage = DummyStorage(query_results=[[]])
+    service = CollectorService(storage)
+
+    with pytest.raises(LookupError, match="not found"):
+        asyncio.run(service.delete_resource_configuration("nope"))
+
+    assert storage.client.command_calls == []
+
+
+def test_delete_refuses_configuration_owned_by_another_plugin():
+    storage = DummyStorage(query_results=[[_stored_row(_config())]])
+    service = CollectorService(storage)
+
+    with pytest.raises(LookupError, match="not found for plugin 'other_plugin'"):
+        asyncio.run(
+            service.delete_resource_configuration(
+                "example_telegraf", collector_plugin="other_plugin"
+            )
+        )
+
+    assert storage.client.command_calls == []
 
 
 def test_generate_configuration_rejects_unsafe_resource_type():

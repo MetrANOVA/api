@@ -297,6 +297,43 @@ class CollectorService:
         )
         return await self._insert(config)
 
+    async def delete_resource_configuration(
+        self, config_id: str, collector_plugin: str | None = None
+    ) -> dict[str, str]:
+        """Delete every snapshot of a configuration.
+
+        Args:
+            config_id: Stable id shared by all versions of the configuration.
+            collector_plugin: When given, the delete only applies to a
+                configuration owned by that plugin.
+
+        Raises:
+            LookupError: no configuration is stored under that id, or it belongs
+                to a different plugin.
+        """
+        await self.storage.ensure_resource_configuration_table()
+
+        current = await self.get_resource_configuration_by_id(config_id)
+        if (
+            collector_plugin is not None
+            and current.collector_plugin != collector_plugin
+        ):
+            raise LookupError(
+                f"Resource configuration with id '{config_id}' not found for "
+                f"plugin '{collector_plugin}'"
+            )
+
+        table_name = self.storage._qualified_table_name(TABLE)
+        await self.storage.client.command(
+            f"ALTER TABLE {table_name} DELETE WHERE id = {{id:String}}",
+            parameters={"id": config_id},
+        )
+
+        return {
+            "message": f"Resource configuration '{config_id}' deleted",
+            "id": config_id,
+        }
+
     async def generate_configuration(self, c: ResourceConfiguration):
         return self.plugins[c.collector_plugin].render_config(c)
         # config = self.generate_telegraf_config(

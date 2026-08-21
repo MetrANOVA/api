@@ -46,6 +46,26 @@ async def create_collector_resource_configuration(
         )
 
 
+@router.delete("/plugins/{name}/resource_configurations/{config_id}")
+async def delete_collector_resource_configuration(
+    req: Request, name: str, config_id: str
+):
+    """Delete a collector resource configuration and all of its snapshots."""
+    try:
+        metadata = CollectorService(req.app.state.se)
+        return await metadata.delete_resource_configuration(
+            config_id, collector_plugin=name
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error deleting collector resource configuration: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error deleting collector resource configuration: {e}",
+        )
+
+
 @router.get("/plugins/{name}/resource_configurations/example")
 async def get_collector_resource_configuration_example(req: Request, name: str):
     """List all registered collector configurations.
