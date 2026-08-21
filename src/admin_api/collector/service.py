@@ -153,6 +153,10 @@ class CollectorService:
             f"Loaded {len(self.plugins)} collector plugins: {list(self.plugins)}"
         )
 
+    def get_plugin_names(self) -> list[str]:
+        """Return the ids of every loaded collector plugin."""
+        return list(self.plugins)
+
     async def _declared_field_names(self, resource_type: str) -> set[str]:
         """Field names declared by the referenced resource type definition."""
         definition = await self.storage.find_resource_type_by_slug(resource_type)
@@ -334,24 +338,18 @@ class CollectorService:
 
         return config
 
-    async def delete_resource_configuration(
-        self, config_id: str, collector_plugin: str | None = None
-    ) -> dict[str, str]:
+    async def delete_resource_configuration(self, config_id: str) -> dict[str, str]:
         """Delete every snapshot of a configuration.
 
         Args:
             config_id: Stable id shared by all versions of the configuration.
-            collector_plugin: When given, the delete only applies to a
-                configuration owned by that plugin.
 
         Raises:
-            LookupError: no configuration is stored under that id, or it belongs
-                to a different plugin.
+            LookupError: no configuration is stored under that id.
         """
         await self.storage.ensure_resource_configuration_table()
 
-        current = await self.get_resource_configuration_by_id(config_id)
-        self._assert_owned_by(current, collector_plugin)
+        await self.get_resource_configuration_by_id(config_id)
 
         table_name = self.storage._qualified_table_name(TABLE)
         await self.storage.client.command(

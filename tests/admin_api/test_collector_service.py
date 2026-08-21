@@ -423,11 +423,7 @@ def test_delete_removes_every_snapshot_of_the_id():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = CollectorService(storage)
 
-    result = asyncio.run(
-        service.delete_resource_configuration(
-            "example_telegraf", collector_plugin="telegraf_vscode"
-        )
-    )
+    result = asyncio.run(service.delete_resource_configuration("example_telegraf"))
 
     assert result["id"] == "example_telegraf"
     assert len(storage.client.command_calls) == 1
@@ -443,20 +439,6 @@ def test_delete_reports_missing_configuration():
 
     with pytest.raises(LookupError, match="not found"):
         asyncio.run(service.delete_resource_configuration("nope"))
-
-    assert storage.client.command_calls == []
-
-
-def test_delete_refuses_configuration_owned_by_another_plugin():
-    storage = DummyStorage(query_results=[[_stored_row(_config())]])
-    service = CollectorService(storage)
-
-    with pytest.raises(LookupError, match="not found for plugin 'other_plugin'"):
-        asyncio.run(
-            service.delete_resource_configuration(
-                "example_telegraf", collector_plugin="other_plugin"
-            )
-        )
 
     assert storage.client.command_calls == []
 
