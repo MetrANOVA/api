@@ -78,7 +78,7 @@ class DummyPlugin:
         self.error = error
         self.rendered = []
 
-    def render_config(self, config):
+    async def render_config(self, config):
         if self.error:
             raise self.error
         self.rendered.append(config)

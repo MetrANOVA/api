@@ -369,7 +369,7 @@ class CollectorService:
                 f"No collector plugin '{c.collector_plugin}' is registered. "
                 f"Available plugins: {', '.join(sorted(self.plugins)) or 'none'}"
             )
-        return plugin.render_config(c)
+        return await plugin.render_config(c)
 
     def generate_telegraf_config(
         self,

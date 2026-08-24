@@ -10,6 +10,8 @@ dependencies = [
 	"uvicorn[standard] (>=0.34.0,<0.35.0)",
 	"python-json-logger>=3.3.0",
 	"tomli-w>=1.2.0",
+	"ruamel-yaml>=0.19.1",
+	"kubernetes-asyncio>=32.0.0",
 ]
 
 [dependency-groups]
@@ -48,3 +50,4 @@ entrypoint = "admin_api.app:app"
 
 [project.entry-points."metranova.collector.plugins"]
 telegraf_vscode = "admin_api.collector.plugins.telegraf_vscode:TelegrafVscode"
+telegraf_kube = "admin_api.collector.plugins.telegraf_kube:TelegrafKube"

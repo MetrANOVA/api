@@ -9,7 +9,7 @@ class DataSourcePlugin(ABC):
     plugin_type: str = "datasource"
 
     @abstractmethod
-    def render_config(self, datasources: list[ResourceConfiguration]) -> any:
+    async def render_config(self, datasources: ResourceConfiguration) -> any:
         """Produce a collector config file from one or more DataSources.
         Called by both the CCE (preview) and the plugin container (apply).
         """

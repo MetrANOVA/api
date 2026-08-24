@@ -4,3 +4,4 @@
 *.pytest_cache/
 .claude
 .devcontainer/telegraf/telegraf.d/*.conf
+.env
