@@ -370,24 +370,6 @@ class CollectorService:
                 f"Available plugins: {', '.join(sorted(self.plugins)) or 'none'}"
             )
         return plugin.render_config(c)
-        # config = self.generate_telegraf_config(
-        #     c,
-        #     agents=["udp://snmp-simulator:161"],
-        #     version=2,
-        #     community="public",
-        # )
-
-        # toml_config = tomli_w.dumps(config)
-
-        # # resource_type reaches us from the create payload — keep it out of the path
-        # # unless it is a plain name.
-        # if not _SAFE_NAME.match(c.resource_type):
-        #     raise ValueError(f"Unsafe resource type name: {c.resource_type!r}")
-
-        # with open(f"/etc/telegraf/telegraf.d/{c.resource_type}.toml", "w") as f:
-        #     f.write(toml_config)
-
-        # return toml_config
 
     def generate_telegraf_config(
         self,

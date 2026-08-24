@@ -42,6 +42,22 @@ async def get_collector_resource_configurations(
         )
 
 
+@router.get("/resource_configurations/{config_id}")
+async def get_collector_resource_configuration(req: Request, config_id: str):
+    """Fetch a single collector resource configuration by id."""
+    try:
+        metadata = CollectorService(req.app.state.se)
+        return await metadata.get_resource_configuration_by_id(config_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error fetching collector resource configuration: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error fetching collector resource configuration: {e}",
+        )
+
+
 @router.post("/resource_configurations")
 async def create_collector_resource_configuration(
     req: Request, config: ResourceConfigurationRequest
