@@ -62,7 +62,7 @@ def api_client(monkeypatch):
 
 def test_update_route_appends_a_version(api_client):
     response = api_client.post(
-        "/collector/plugins/telegraf_vscode/resource_configurations/example_telegraf",
+        "/collector/resource_configurations/example_telegraf",
         json={"interval": 30},
     )
 
@@ -73,14 +73,13 @@ def test_update_route_appends_a_version(api_client):
     # the rendered config is a side effect, not part of the response
     assert "rendered" not in body
 
-    # the plugin in the path scopes the update
     config_id, _, collector_plugin = FakeCollectorService.calls[0]
-    assert (config_id, collector_plugin) == ("example_telegraf", "telegraf_vscode")
+    assert (config_id, collector_plugin) == ("example_telegraf", None)
 
 
 def test_update_route_reports_missing_configuration_as_404(api_client):
     response = api_client.post(
-        "/collector/plugins/telegraf_vscode/resource_configurations/missing",
+        "/collector/resource_configurations/missing",
         json={"interval": 30},
     )
 
@@ -90,7 +89,7 @@ def test_update_route_reports_missing_configuration_as_404(api_client):
 
 def test_update_route_rejects_an_empty_body(api_client):
     response = api_client.post(
-        "/collector/plugins/telegraf_vscode/resource_configurations/example_telegraf",
+        "/collector/resource_configurations/example_telegraf",
         json={},
     )
 
@@ -100,7 +99,7 @@ def test_update_route_rejects_an_empty_body(api_client):
 
 def test_update_route_validates_the_body_before_the_service(api_client):
     response = api_client.post(
-        "/collector/plugins/telegraf_vscode/resource_configurations/example_telegraf",
+        "/collector/resource_configurations/example_telegraf",
         json={"interval": 0},
     )
 

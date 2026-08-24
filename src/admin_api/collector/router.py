@@ -42,9 +42,9 @@ async def get_collector_resource_configurations(
         )
 
 
-@router.post("/plugins/{name}/resource_configurations")
+@router.post("/resource_configurations")
 async def create_collector_resource_configuration(
-    req: Request, name: str, config: ResourceConfigurationRequest
+    req: Request, config: ResourceConfigurationRequest
 ):
     """Create a new collector resource configuration.
 
@@ -64,9 +64,9 @@ async def create_collector_resource_configuration(
         )
 
 
-@router.post("/plugins/{name}/resource_configurations/{config_id}")
+@router.post("/resource_configurations/{config_id}")
 async def update_collector_resource_configuration(
-    req: Request, name: str, config_id: str, config: ResourceConfigurationUpdate
+    req: Request, config_id: str, config: ResourceConfigurationUpdate
 ):
     """Append a new version of a collector resource configuration.
 
@@ -76,9 +76,7 @@ async def update_collector_resource_configuration(
     """
     try:
         metadata = CollectorService(req.app.state.se)
-        return await metadata.update_resource_configuration(
-            config_id, config, collector_plugin=name
-        )
+        return await metadata.update_resource_configuration(config_id, config)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -107,25 +105,18 @@ async def delete_collector_resource_configuration(req: Request, config_id: str):
         )
 
 
-@router.get("/plugins/{name}/resource_configurations/example")
-async def get_collector_resource_configuration_example(req: Request, name: str):
-    """List all registered collector configurations.
-
-    Returns the slug of each resource type where type is 'collector'.
-    """
+@router.get("/resource_configurations/{config_id}/render")
+async def render_collector_resource_configuration(req: Request, config_id: str):
+    """Render a single collector resource configuration."""
     try:
         metadata = CollectorService(req.app.state.se)
-        configs = await metadata.get_collector_configurations(collector_plugin=name)
-        if not configs:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No resource configurations stored for plugin '{name}'",
-            )
-        return [await metadata.generate_configuration(c) for c in configs]
-    except HTTPException:
-        raise
+        config = await metadata.get_resource_configuration_by_id(config_id)
+        return await metadata.generate_configuration(config)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception(f"Error fetching collector configurations: {e}")
+        logger.exception(f"Error rendering collector resource configuration: {e}")
         raise HTTPException(
-            status_code=400, detail=f"Error fetching collector configurations: {e}"
+            status_code=400,
+            detail=f"Error rendering collector resource configuration: {e}",
         )
