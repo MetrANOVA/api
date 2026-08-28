@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from admin_api.collector.model import ResourceConfiguration
+
+if TYPE_CHECKING:
+    from admin_api.nodes.model import Node
 
 
 class DataSourcePlugin(ABC):
@@ -9,9 +13,16 @@ class DataSourcePlugin(ABC):
     plugin_type: str = "datasource"
 
     @abstractmethod
-    async def render_config(self, datasources: ResourceConfiguration) -> any:
+    async def render_config(
+        self,
+        datasources: ResourceConfiguration,
+        nodes: "list[Node] | None" = None,
+    ) -> any:
         """Produce a collector config file from one or more DataSources.
-        Called by both the CCE (preview) and the plugin container (apply).
+
+        `nodes` is the set of nodes the configuration selects (empty selectors
+        resolve to every node). Called by both the CCE (preview) and the plugin
+        container (apply).
         """
         ...
 

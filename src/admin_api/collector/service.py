@@ -4,8 +4,7 @@ import re
 from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
-import tomli_w
-
+from admin_api.nodes.service import NodeService
 from admin_api.resource_type.router import (
     _existing_data_field_names,
     _existing_meta_field_names,
@@ -18,6 +17,7 @@ from .model import (
     ResourceConfigurationUpdate,
     Selector,
 )
+from .selectors import select_nodes
 
 if TYPE_CHECKING:
     from metranova.storage.clickhouse import Clickhouse
@@ -369,88 +369,8 @@ class CollectorService:
                 f"No collector plugin '{c.collector_plugin}' is registered. "
                 f"Available plugins: {', '.join(sorted(self.plugins)) or 'none'}"
             )
-        return await plugin.render_config(c)
 
-    def generate_telegraf_config(
-        self,
-        config: ResourceConfiguration,
-        agents: list[str],
-        version: int = 2,
-        community: str = "public",
-    ) -> dict[str, Any]:
-        """Build a Telegraf SNMP input config dict ready for TOML serialization.
-
-        Args:
-            agents: List of SNMP agent URIs (e.g. ["udp://host:161"]).
-            version: SNMP version (default 2).
-            community: SNMP community string (default "public").
-
-        Returns:
-            A plain dict matching the Telegraf SNMP input config structure.
-        """
-
-        scalar_fields = [{"name": "node", "oid": ".1.3.6.1.2.1.1.5.0", "is_tag": True}]
-        table_fields = []
-
-        for k, oid in config.field_mappings.items():
-            is_scalar = oid.oid.endswith(".0")
-            entry: dict[str, Any] = {
-                "name": k,
-                "oid": oid.oid,
-            }
-
-            if is_scalar:
-                if bool(oid.is_tag):
-                    entry["is_tag"] = True
-                scalar_fields.append(entry)
-            else:
-                if bool(oid.is_tag):
-                    entry["is_tag"] = True
-                if bool(oid.secondary_index_use):
-                    entry["secondary_index_use"] = True
-                if bool(oid.secondary_index_table):
-                    entry["secondary_index_table"] = True
-                table_fields.append(entry)
-
-        inherit_tags = [f["name"] for f in scalar_fields if f.get("is_tag")]
-
-        snmp_block: dict[str, Any] = {
-            "agents": agents,
-            "version": version,
-            "community": community,
-            "interval": f"{config.interval}s",
-            "timeout": f"{config.timeout}s",
-        }
-
-        if scalar_fields:
-            snmp_block["field"] = scalar_fields
-
-        if table_fields:
-            table_block: dict[str, Any] = {
-                "name": config.resource_type,
-                "index_as_tag": True,
-            }
-            if inherit_tags:
-                table_block["inherit_tags"] = inherit_tags
-            table_block["field"] = table_fields
-            snmp_block["table"] = [table_block]
-
-        return {
-            "agent": {
-                "interval": f"{config.interval}s",
-                "round_interval": True,
-                "flush_interval": f"{config.interval}s",
-            },
-            "inputs": {"snmp": [snmp_block]},
-            "outputs": {
-                "kafka": [
-                    {
-                        "brokers": ["kafka:9092"],
-                        "topic": "metranova_snmp",
-                        "data_format": "json",
-                        "version": "3.0.0",
-                    }
-                ],
-                "file": [{"files": ["stdout"], "data_format": "influx"}],
-            },
-        }
+        # Empty selectors resolve to every node; otherwise only the matches.
+        all_nodes = await NodeService(self.storage).get_nodes()
+        nodes = select_nodes(all_nodes, c.node_selectors)
+        return await plugin.render_config(c, nodes)

@@ -21,3 +21,10 @@ CREATE TABLE IF NOT EXISTS metranova.nodes
     updated_at DateTime64(6) DEFAULT now64(6)
 ) ENGINE = MergeTree()
 ORDER BY (node_id);
+
+-- Seed the dev SNMP simulator as a node so resource configurations with no
+-- node_selectors have something to collect from. Guarded so the replay stays
+-- idempotent.
+INSERT INTO metranova.nodes (node_id, host, port, community, name, make, model)
+SELECT 'snmp-simulator', 'snmp-simulator', 161, 'public', 'snmp-simulator', 'generic', 'simulator'
+WHERE (SELECT count() FROM metranova.nodes WHERE node_id = 'snmp-simulator') = 0;

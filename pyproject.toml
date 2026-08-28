@@ -49,5 +49,5 @@ force-exclude = '''
 entrypoint = "admin_api.app:app"
 
 [project.entry-points."metranova.collector.plugins"]
-telegraf_vscode = "admin_api.collector.plugins.telegraf_vscode:TelegrafVscode"
-telegraf_kube = "admin_api.collector.plugins.telegraf_kube:TelegrafKube"
+telegraf_vscode = "admin_api.collector.plugins.telegraf:TelegrafVscode"
+telegraf_kube = "admin_api.collector.plugins.telegraf:TelegrafKube"

@@ -62,6 +62,9 @@ class DummyStorage:
     async def ensure_resource_configuration_table(self):
         self.ensure_calls += 1
 
+    async def ensure_nodes_table(self):
+        pass
+
     def _qualified_table_name(self, table_name: str) -> str:
         return f"`{self.database}`.`{table_name}`"
 
@@ -77,11 +80,13 @@ class DummyPlugin:
     def __init__(self, error=None):
         self.error = error
         self.rendered = []
+        self.rendered_nodes = []
 
-    async def render_config(self, config):
+    async def render_config(self, config, nodes=None):
         if self.error:
             raise self.error
         self.rendered.append(config)
+        self.rendered_nodes.append(nodes)
         return "[rendered]"
 
 
@@ -455,3 +460,58 @@ def test_generate_configuration_rejects_unsafe_resource_type():
         assert "Unsafe resource type name" in str(exc)
     else:
         raise AssertionError("expected ValueError for unsafe resource_type")
+
+
+def _node_row(**overrides) -> dict:
+    row = dict(
+        node_id="n1",
+        host="10.0.0.1",
+        port=161,
+        community="public",
+        name="rtr-1",
+        make="Cisco",
+        model="ASR9000",
+        updated_at="2026-08-11 00:00:00",
+    )
+    row.update(overrides)
+    return row
+
+
+def test_generate_configuration_passes_only_selected_nodes_to_plugin():
+    storage = DummyStorage(
+        query_results=[
+            [
+                _node_row(node_id="a", host="10.0.0.1", make="Cisco"),
+                _node_row(node_id="b", host="10.0.0.2", make="Juniper"),
+            ]
+        ]
+    )
+    plugin = DummyPlugin()
+    service = _service(storage, plugin)
+
+    asyncio.run(
+        service.generate_configuration(
+            _config(node_selectors=[Selector(type="make", value="cisco")])
+        )
+    )
+
+    assert [n.host for n in plugin.rendered_nodes[0]] == ["10.0.0.1"]
+
+
+def test_generate_configuration_without_selectors_passes_every_node():
+    storage = DummyStorage(
+        query_results=[
+            [
+                _node_row(node_id="a", host="10.0.0.1"),
+                _node_row(node_id="b", host="10.0.0.2"),
+            ]
+        ]
+    )
+    plugin = DummyPlugin()
+    service = _service(storage, plugin)
+
+    asyncio.run(
+        service.generate_configuration(_config(node_selectors=[]))
+    )
+
+    assert [n.host for n in plugin.rendered_nodes[0]] == ["10.0.0.1", "10.0.0.2"]
