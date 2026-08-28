@@ -20,8 +20,6 @@ class TransformerService:
     async def create_transformer(
         self, name: str, definition_ref: str, description: str, match_field: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         slug = name.lower().replace(" ", "_")
 
         table_name = self.storage._qualified_table_name("transformer")
@@ -67,7 +65,6 @@ class TransformerService:
     async def get_all_transformers(
         self, definition_ref: str | None = None
     ) -> list[dict]:
-        await self.storage.ensure_transformer_table()
 
         table_name = self.storage._qualified_table_name("transformer")
         if definition_ref is not None:
@@ -102,8 +99,6 @@ class TransformerService:
         ]
 
     async def get_transformer_by_id(self, transformer_id: str) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         table_name = self.storage._qualified_table_name("transformer")
         try:
             result = await self.storage.client.query(
@@ -149,8 +144,6 @@ class TransformerService:
         description: str | None,
         match_field: str | None,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_table()
-
         try:
             # Confirm the transformer exists first and keep the current payload
             found, current = await self.get_transformer_by_id(transformer_id)
@@ -209,8 +202,6 @@ class TransformerService:
         default_value: str | None,
         order: int = 1,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         try:
             if operation not in operations:
                 raise Exception("Unknown operation: " + operation)
@@ -246,9 +237,139 @@ class TransformerService:
             logger.exception("Error creating transformer column")
             return False, {"message": f"Error creating transformer column: {e}"}
 
-    async def get_transformer_columns(self, transformer_ref: str) -> list[dict]:
+    async def validate_batch_columns(
+        self, columns: list[dict]
+    ) -> tuple[bool, list[dict], list[dict]]:
+        """
+        Validate all columns before creation (atomic validation).
+
+        Args:
+            columns: List of column definitions to validate
+
+        Returns:
+            (is_valid, validated_columns, errors)
+            - is_valid: True if all columns are valid, False otherwise
+            - validated_columns: List of validated column dicts if all valid, empty list otherwise
+            - errors: List of error dicts if any validation fails, empty list otherwise
+        """
+        errors = []
+
+        for idx, column in enumerate(columns):
+            # Check required fields
+            if not column.get("id"):
+                errors.append(
+                    {
+                        "index": idx,
+                        "id": column.get("id", "N/A"),
+                        "message": "Field 'id' is required and must be non-empty",
+                    }
+                )
+                continue
+
+            if not column.get("operation"):
+                errors.append(
+                    {
+                        "index": idx,
+                        "id": column.get("id"),
+                        "message": "Field 'operation' is required and must be non-empty",
+                    }
+                )
+                continue
+
+            # Validate operation exists
+            operation = column.get("operation")
+            if operation not in operations:
+                errors.append(
+                    {
+                        "index": idx,
+                        "id": column.get("id"),
+                        "message": f"Unknown operation: {operation}",
+                    }
+                )
+                continue
+
+            # Validate config
+            config = column.get("config", {})
+            is_valid, error_message = validate_config(operation, config)
+            if not is_valid:
+                errors.append(
+                    {
+                        "index": idx,
+                        "id": column.get("id"),
+                        "message": f"Invalid config for operation '{operation}': {error_message}",
+                    }
+                )
+                continue
+
+        if errors:
+            return False, [], errors
+
+        return True, columns, []
+
+    async def create_transformer_columns_batch(
+        self,
+        transformer_ref: str,
+        columns: list[dict],
+    ) -> dict:
+        """
+        Create multiple transformer columns in batch.
+        Assumes all columns have been validated.
+
+        Args:
+            transformer_ref: Reference to the transformer
+            columns: List of validated column definitions
+
+        Returns:
+            {
+                "created": int,
+                "failed": int,
+                "results": list of created column dicts,
+                "errors": list of error dicts
+            }
+        """
         await self.storage.ensure_transformer_column_table()
 
+        created_results = []
+        failed_errors = []
+
+        for column in columns:
+            try:
+                data = {
+                    "id": column.get("id"),
+                    "transformer_ref": transformer_ref,
+                    "target_column": column.get("target_column"),
+                    "match_value": column.get("match_value"),
+                    "vendor_match_field": column.get("vendor_match_field"),
+                    "vendor_match_value": column.get("vendor_match_value"),
+                    "operation": column.get("operation"),
+                    "config": json.dumps(column.get("config", {})),
+                    "default_value": column.get("default_value"),
+                    "order": column.get("order", 1),
+                }
+                await self.storage.client.insert(
+                    table="transformer_column",
+                    database=self.storage.database,
+                    column_names=list(data.keys()),
+                    data=[list(data.values())],
+                )
+                created_results.append(data)
+            except Exception as e:
+                logger.exception(f"Error creating column {column.get('id')}")
+                failed_errors.append(
+                    {
+                        "id": column.get("id"),
+                        "message": f"Error creating column: {str(e)}",
+                    }
+                )
+
+        return {
+            "created": len(created_results),
+            "failed": len(failed_errors),
+            "results": created_results,
+            "errors": failed_errors,
+        }
+
+    async def get_transformer_columns(self, transformer_ref: str) -> list[dict]:
         table_name = self.storage._qualified_table_name("transformer_column")
         result = await self.storage.client.query(
             f"SELECT id, transformer_ref, target_column, match_value, vendor_match_field, vendor_match_value, operation, config, default_value, `order` FROM {table_name}"
@@ -279,8 +400,6 @@ class TransformerService:
     async def get_transformer_column_by_id(
         self, transformer_ref: str, column_id: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         table_name = self.storage._qualified_table_name("transformer_column")
         result = await self.storage.client.query(
             f"SELECT id, transformer_ref, target_column, match_value, vendor_match_field, vendor_match_value, operation, config, default_value, `order` FROM {table_name}"
@@ -330,8 +449,6 @@ class TransformerService:
         default_value: str | None,
         order: int | None,
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         found, current = await self.get_transformer_column_by_id(
             transformer_ref=transformer_ref,
             column_id=column_id,
@@ -423,8 +540,6 @@ class TransformerService:
     async def delete_transformer_column(
         self, transformer_ref: str, column_id: str
     ) -> tuple[bool, dict]:
-        await self.storage.ensure_transformer_column_table()
-
         found, column = await self.get_transformer_column_by_id(
             transformer_ref=transformer_ref,
             column_id=column_id,
@@ -438,7 +553,6 @@ class TransformerService:
             + " WHERE transformer_ref = {transformer_ref:String} AND id = {id:String}",
             parameters={"transformer_ref": transformer_ref, "id": column_id},
         )
-
         return True, {
             "message": f"Transformer column '{column_id}' deleted",
             "id": column_id,

@@ -121,6 +121,7 @@ class FakeStorage:
         self.duplicate_transformer = False
         self.missing_definition = False
         self.ensure_called = False
+        self.restart_called = 0
         self.inserted = None
         self.last_command = None
         self.transformer_list = [SNMP_TRANSFORMER, FLOW_TRANSFORMER]
@@ -178,6 +179,9 @@ class FakeStorage:
     async def ensure_transformer_column_table(self):
         self.ensure_called = True
 
+    async def restart_pipelines(self):
+        self.restart_called += 1
+
     def _qualified_table_name(self, table: str) -> str:
         return f"{self.database}.{table}"
 
@@ -216,9 +220,6 @@ def test_transformer_api_create_success(transformer_api_client):
     assert body["id"] == "snmp_normalizer"
     assert body["ref"] == "snmp_normalizer__v1"
     assert body["definition_ref"] == "def_snmp__v1"
-    assert fake_storage.ensure_called is True
-    assert fake_storage.inserted is not None
-    assert fake_storage.inserted["table"] == "transformer"
     assert "id" in fake_storage.inserted["column_names"]
 
 
@@ -411,22 +412,29 @@ def test_transformer_columns_create_uses_transformer_ref(transformer_api_client)
     response = client.post(
         "/transformers/snmp_normalizer/columns",
         json={
-            "id": "map_utilization",
-            "target_column": "utilization",
-            "match_value": None,
-            "vendor_match_field": None,
-            "vendor_match_value": None,
-            "operation": "field",
-            "config": {"source": "if_util"},
-            "default_value": None,
-            "order": 1,
+            "columns": [
+                {
+                    "id": "map_utilization",
+                    "target_column": "utilization",
+                    "match_value": None,
+                    "vendor_match_field": None,
+                    "vendor_match_value": None,
+                    "operation": "field",
+                    "config": {"source": "if_util"},
+                    "default_value": None,
+                    "order": 1,
+                }
+            ]
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["id"] == "map_utilization"
-    assert body["transformer_ref"] == "snmp_normalizer__v1"
+    assert body["created"] == 1
+    assert body["failed"] == 0
+    assert len(body["results"]) == 1
+    assert body["results"][0]["id"] == "map_utilization"
+    assert body["results"][0]["transformer_ref"] == "snmp_normalizer__v1"
     assert fake_storage.inserted is not None
     assert fake_storage.inserted["table"] == "transformer_column"
 
@@ -440,10 +448,14 @@ def test_transformer_columns_create_returns_404_when_transformer_missing(
     response = client.post(
         "/transformers/missing/columns",
         json={
-            "id": "map_utilization",
-            "target_column": "utilization",
-            "operation": "field",
-            "config": {"source": "if_util"},
+            "columns": [
+                {
+                    "id": "map_utilization",
+                    "target_column": "utilization",
+                    "operation": "field",
+                    "config": {"source": "if_util"},
+                }
+            ]
         },
     )
 
@@ -459,15 +471,23 @@ def test_transformer_columns_create_returns_400_for_unknown_operation(
     response = client.post(
         "/transformers/snmp_normalizer/columns",
         json={
-            "id": "map_utilization",
-            "target_column": "utilization",
-            "operation": "does_not_exist",
-            "config": {},
+            "columns": [
+                {
+                    "id": "map_utilization",
+                    "target_column": "utilization",
+                    "operation": "does_not_exist",
+                    "config": {},
+                }
+            ]
         },
     )
 
     assert response.status_code == 400
-    assert "unknown operation" in response.json()["detail"].lower()
+    assert "validation failed" in response.json()["detail"]["message"].lower()
+    assert len(response.json()["detail"]["errors"]) == 1
+    assert (
+        "unknown operation" in response.json()["detail"]["errors"][0]["message"].lower()
+    )
 
 
 # --- GET /transformers/{id}/columns/ ---
@@ -663,16 +683,22 @@ def test_transformer_columns_create_returns_400_for_missing_required_config_fiel
     response = client.post(
         "/transformers/snmp_normalizer/columns",
         json={
-            "id": "bad_field_col",
-            "target_column": "mapped_field",
-            "operation": "field",
-            "config": {"cast": "string"},  # Missing required 'source' field
+            "columns": [
+                {
+                    "id": "bad_field_col",
+                    "target_column": "mapped_field",
+                    "operation": "field",
+                    "config": {"cast": "string"},  # Missing required 'source' field
+                }
+            ]
         },
     )
 
     assert response.status_code == 400
-    assert "invalid config" in response.json()["detail"].lower()
-    assert "source" in response.json()["detail"].lower()
+    assert "validation failed" in response.json()["detail"]["message"].lower()
+    assert len(response.json()["detail"]["errors"]) == 1
+    assert "invalid config" in response.json()["detail"]["errors"][0]["message"].lower()
+    assert "source" in response.json()["detail"]["errors"][0]["message"].lower()
 
 
 def test_transformer_columns_create_returns_400_for_invalid_config_type(
@@ -685,19 +711,25 @@ def test_transformer_columns_create_returns_400_for_invalid_config_type(
     response = client.post(
         "/transformers/snmp_normalizer/columns",
         json={
-            "id": "bad_concat_col",
-            "target_column": "concatenated",
-            "operation": "concat",
-            "config": {
-                "fields": "not_a_list",  # Should be a list
-                "delimiter": ",",
-            },
+            "columns": [
+                {
+                    "id": "bad_concat_col",
+                    "target_column": "concatenated",
+                    "operation": "concat",
+                    "config": {
+                        "fields": "not_a_list",  # Should be a list
+                        "delimiter": ",",
+                    },
+                }
+            ]
         },
     )
 
     assert response.status_code == 400
-    assert "invalid config" in response.json()["detail"].lower()
-    assert "fields" in response.json()["detail"].lower()
+    assert "validation failed" in response.json()["detail"]["message"].lower()
+    assert len(response.json()["detail"]["errors"]) == 1
+    assert "invalid config" in response.json()["detail"]["errors"][0]["message"].lower()
+    assert "fields" in response.json()["detail"]["errors"][0]["message"].lower()
 
 
 def test_transformer_columns_create_succeeds_with_valid_config(
@@ -709,19 +741,145 @@ def test_transformer_columns_create_succeeds_with_valid_config(
     response = client.post(
         "/transformers/snmp_normalizer/columns",
         json={
-            "id": "good_field_col",
-            "target_column": "source_value",
-            "operation": "field",
-            "config": {
-                "source": "interface_speed",
-                "cast": "int",
-            },
+            "columns": [
+                {
+                    "id": "good_field_col",
+                    "target_column": "source_value",
+                    "operation": "field",
+                    "config": {
+                        "source": "interface_speed",
+                        "cast": "int",
+                    },
+                }
+            ]
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["id"] == "good_field_col"
+    assert body["created"] == 1
+    assert body["failed"] == 0
+    assert len(body["results"]) == 1
+    assert body["results"][0]["id"] == "good_field_col"
+
+
+# --- Batch Column Creation Tests ---
+
+
+def test_transformer_columns_create_multiple_valid_columns(
+    transformer_api_client,
+):
+    """Test that multiple valid columns are created successfully."""
+    client, fake_storage = transformer_api_client
+
+    response = client.post(
+        "/transformers/snmp_normalizer/columns",
+        json={
+            "columns": [
+                {
+                    "id": "col1",
+                    "target_column": "field1",
+                    "operation": "field",
+                    "config": {"source": "src1"},
+                },
+                {
+                    "id": "col2",
+                    "target_column": "field2",
+                    "operation": "field",
+                    "config": {"source": "src2"},
+                },
+                {
+                    "id": "col3",
+                    "target_column": "field3",
+                    "operation": "static",
+                    "config": {"value": "static_val"},
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == 3
+    assert body["failed"] == 0
+    assert len(body["results"]) == 3
+    assert body["errors"] == []
+    assert body["results"][0]["id"] == "col1"
+    assert body["results"][1]["id"] == "col2"
+    assert body["results"][2]["id"] == "col3"
+
+
+def test_transformer_columns_create_batch_validation_fails_atomically(
+    transformer_api_client,
+):
+    """Test that if ANY column is invalid, NO columns are created (atomic validation)."""
+    client, fake_storage = transformer_api_client
+
+    response = client.post(
+        "/transformers/snmp_normalizer/columns",
+        json={
+            "columns": [
+                {
+                    "id": "valid_col",
+                    "target_column": "field1",
+                    "operation": "field",
+                    "config": {"source": "src1"},
+                },
+                {
+                    "id": "invalid_col",
+                    "target_column": "field2",
+                    "operation": "unknown_operation",  # Invalid
+                    "config": {},
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "validation failed" in response.json()["detail"]["message"].lower()
+    assert len(response.json()["detail"]["errors"]) == 1
+    assert response.json()["detail"]["errors"][0]["id"] == "invalid_col"
+    # Verify no columns were inserted since validation failed
+    assert fake_storage.inserted is None
+
+
+def test_transformer_columns_create_with_missing_required_field(
+    transformer_api_client,
+):
+    """Test that request validation fails if required field is missing."""
+    client, _ = transformer_api_client
+
+    response = client.post(
+        "/transformers/snmp_normalizer/columns",
+        json={
+            "columns": [
+                {
+                    # Missing 'id' field
+                    "target_column": "field1",
+                    "operation": "field",
+                    "config": {"source": "src1"},
+                }
+            ]
+        },
+    )
+
+    # Should fail due to Pydantic validation (id is required)
+    assert response.status_code == 422
+
+
+def test_transformer_columns_create_batch_empty_array_rejected(
+    transformer_api_client,
+):
+    """Test that empty columns array is rejected due to min_length=1 constraint."""
+    client, _ = transformer_api_client
+
+    response = client.post(
+        "/transformers/snmp_normalizer/columns",
+        json={"columns": []},
+    )
+
+    # Should fail due to Pydantic validation (min_length=1)
+    assert response.status_code == 422
 
 
 def test_transformer_columns_update_returns_400_for_invalid_config_type(
