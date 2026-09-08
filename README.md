@@ -137,14 +137,15 @@ docker compose -f .devcontainer/docker-compose.yml up -d
 /opt/kafka/bin/kafka-dump-log.sh \
 --files /var/lib/kafka/data/metranova_snmp-0/00000000000000000000.log \
 --print-data-log
+```
 
 ## Notes
 
-### Demo Data Types
+### Demo Resource Types
 
 ```json
 {
-    "name": "interfacev2",
+    "name": "interface",
     "meta_fields": [
         {
             "field_name": "node",
@@ -160,18 +161,18 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     "data_fields": [
         {
             "field_name": "oper_status",
-            "field_type": "Int64",
+            "field_type": "Nullable(Int64)",
             "nullable": true
         },
         {
             "field_name": "tx_bytes",
-            "field_type": "Int64",
-            "nullable": false
+            "field_type": "Nullable(Int64)",
+            "nullable": true
         },
         {
             "field_name": "rx_bytes",
-            "field_type": "Int64",
-            "nullable": false
+            "field_type": "Nullable(Int64)",
+            "nullable": true
         },
         {
             "field_name": "node",
@@ -209,8 +210,8 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     "data_fields": [
         {
             "field_name": "cpu_total",
-            "field_type": "Int32",
-            "nullable": false
+            "field_type": "Nullable(Int32)",
+            "nullable": true
         },
         {
             "field_name": "node",
@@ -227,5 +228,50 @@ docker compose -f .devcontainer/docker-compose.yml up -d
       "node","cpu"
     ],
     "ttl": "365 DAY"
+}
+```
+
+### Demo SNMP Resource Configs
+
+```json
+{
+  "name": "interface",
+  "resource_type": "interface",
+  "collector_plugin": "telegraf_vscode",
+  "interval": 60,
+  "timeout": 15,
+  "field_mappings": {
+    "intf": {
+      "oid": ".1.3.6.1.2.1.31.1.1.1.1",
+      "is_tag": true
+    },
+    "rx_bytes": {
+      "oid": ".1.3.6.1.2.1.2.2.1.10"
+    },
+    "tx_bytes": {
+      "oid": ".1.3.6.1.2.1.2.2.1.16"
+    }
+  },
+  "node_selectors": []
+}
+```
+
+```json
+{
+  "name": "cpu",
+  "resource_type": "cpu",
+  "collector_plugin": "telegraf_vscode",
+  "interval": 60,
+  "timeout": 15,
+  "field_mappings": {
+    "cpu": {
+      "oid": ".1.3.6.1.4.1.9.9.109.1.1.1.1.2",
+      "is_tag": true
+    },
+    "cpu_total": {
+      "oid": ".1.3.6.1.4.1.9.9.109.1.1.1.1.7"
+    }
+  },
+  "node_selectors": []
 }
 ```

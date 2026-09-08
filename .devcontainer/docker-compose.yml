@@ -131,6 +131,7 @@ services:
   telegraf:
     image: telegraf:latest
     container_name: telegraf
+    command: ["--config", "/etc/telegraf/telegraf.conf", "--config-directory", "/etc/telegraf/telegraf.d", "--watch-config", "poll"]
     depends_on:
       clickhouse-init:
         condition: service_completed_successfully
@@ -142,6 +143,7 @@ services:
         condition: service_started
     volumes:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./telegraf/telegraf.d:/etc/telegraf/telegraf.d
     environment:
       HOST_PROC: /rootfs/proc
       HOST_SYS: /rootfs/sys
@@ -222,6 +224,7 @@ services:
         condition: service_healthy
     volumes:
       - ..:/app:cached
+      - ./telegraf/telegraf.d:/etc/telegraf/telegraf.d
     environment:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"

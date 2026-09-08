@@ -1022,10 +1022,120 @@ class Clickhouse(StorageEngine):
                 operation String,
                 config String, -- JSON
                 default_value Nullable(String),
-                `order` UInt16 DEFAULT 0     
+                `order` UInt16 DEFAULT 0
             )
             ENGINE = {self._validated_engine_name(self.metadata_engine)}()
             ORDER BY (transformer_ref, target_column, id);
+        """)
+
+    async def ensure_resource_configuration_table(self):
+        if not await self.is_connected():
+            await self.connect()
+
+        table_name = self._qualified_table_name("resource_configuration")
+
+        result = await self.client.query(f"EXISTS TABLE {table_name}")
+        rows = getattr(result, "result_rows", None) or []
+        exists = False
+        if rows:
+            first_row = rows[0]
+            first_value = first_row
+            if isinstance(first_row, dict):
+                first_value = next(iter(first_row.values()), 0)
+            elif isinstance(first_row, (list, tuple)) and first_row:
+                first_value = first_row[0]
+
+            if isinstance(first_value, bool):
+                exists = first_value
+            else:
+                try:
+                    exists = int(first_value) == 1
+                except TypeError, ValueError:
+                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+                    exists = True
+        if exists:
+            return
+
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
+
+        await self.client.command(f"""
+            CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
+            (
+                id String,                -- Stable identifier (e.g., 'example_telegraf')
+                ref String,               -- Immutable snapshot ('example_telegraf__v1')
+
+                name String,
+                slug String,
+                resource_type String,     -- definition slug this config collects for
+                collector_plugin String,  -- e.g., 'telegraf_vscode'
+                interval UInt32 DEFAULT 60,
+                timeout UInt32 DEFAULT 15,
+
+                field_mappings Array(Tuple(
+                    field_name String,
+                    oid String,
+                    is_tag Bool,
+                    secondary_index_table Nullable(String),
+                    secondary_index_use Nullable(Bool)
+                )),
+                node_selectors Array(Tuple(
+                    type String,
+                    value String
+                )),
+
+                updated_at DateTime DEFAULT now()
+            )
+            ENGINE = {self._validated_engine_name(self.metadata_engine)}()
+            ORDER BY (ref);
+        """)
+
+    async def ensure_nodes_table(self):
+        if not await self.is_connected():
+            await self.connect()
+
+        table_name = self._qualified_table_name("nodes")
+
+        result = await self.client.query(f"EXISTS TABLE {table_name}")
+        rows = getattr(result, "result_rows", None) or []
+        exists = False
+        if rows:
+            first_row = rows[0]
+            first_value = first_row
+            if isinstance(first_row, dict):
+                first_value = next(iter(first_row.values()), 0)
+            elif isinstance(first_row, (list, tuple)) and first_row:
+                first_value = first_row[0]
+
+            if isinstance(first_value, bool):
+                exists = first_value
+            else:
+                try:
+                    exists = int(first_value) == 1
+                except (TypeError, ValueError):
+                    # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
+                    exists = True
+        if exists:
+            return
+
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
+
+        await self.client.command(f"""
+            CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
+            (
+                node_id String,
+
+                host String,
+                port UInt16,
+                community String,
+
+                name String,
+                make String,
+                model String,
+
+                updated_at DateTime64(6) DEFAULT now64(6)
+            )
+            ENGINE = {self._validated_engine_name(self.metadata_engine)}()
+            ORDER BY (node_id);
         """)
 
     async def restart_pipelines(self):

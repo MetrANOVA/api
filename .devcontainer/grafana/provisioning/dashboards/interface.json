@@ -57,7 +57,7 @@
             },
             "gridPos": {
                 "h": 15,
-                "w": 8,
+                "w": 6,
                 "x": 0,
                 "y": 0
             },
@@ -196,8 +196,8 @@
             },
             "gridPos": {
                 "h": 15,
-                "w": 16,
-                "x": 8,
+                "w": 18,
+                "x": 6,
                 "y": 0
             },
             "id": 1,
@@ -205,7 +205,7 @@
                 "legend": {
                     "calcs": [],
                     "displayMode": "table",
-                    "placement": "bottom",
+                    "placement": "right",
                     "showLegend": true
                 },
                 "tooltip": {
@@ -218,17 +218,38 @@
             "targets": [
                 {
                     "builderOptions": {
-                        "aggregates": [
+                        "aggregates": [],
+                        "columns": [
                             {
-                                "aggregateType": "avg",
-                                "column": "tx_bytes"
+                                "alias": "insert_time",
+                                "custom": false,
+                                "name": "insert_time",
+                                "type": "DateTime"
                             },
                             {
-                                "aggregateType": "avg",
-                                "column": "rx_bytes"
-                            }
-                        ],
-                        "columns": [
+                                "alias": "tx_bytes",
+                                "custom": false,
+                                "name": "tx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "rx_bytes",
+                                "custom": false,
+                                "name": "rx_bytes",
+                                "type": "Int64"
+                            },
+                            {
+                                "alias": "node",
+                                "custom": false,
+                                "name": "node",
+                                "type": "String"
+                            },
+                            {
+                                "alias": "intf",
+                                "custom": false,
+                                "name": "intf",
+                                "type": "String"
+                            },
                             {
                                 "hint": "time",
                                 "name": "insert_time",
@@ -246,23 +267,28 @@
                                 "type": "datetime"
                             }
                         ],
-                        "groupBy": [
-                            "node",
-                            "intf"
-                        ],
+                        "groupBy": [],
                         "limit": 1000,
                         "meta": {},
-                        "mode": "trend",
+                        "mode": "aggregate",
                         "orderBy": [
                             {
                                 "default": true,
                                 "dir": "ASC",
                                 "hint": "time",
                                 "name": ""
+                            },
+                            {
+                                "dir": "ASC",
+                                "name": "node"
+                            },
+                            {
+                                "dir": "ASC",
+                                "name": "intf"
                             }
                         ],
                         "queryType": "timeseries",
-                        "table": "data_interfacev2"
+                        "table": "data_interface"
                     },
                     "datasource": {
                         "type": "grafana-clickhouse-datasource",
@@ -270,8 +296,8 @@
                     },
                     "editorType": "builder",
                     "format": 0,
-                    "pluginVersion": "4.17.0",
-                    "rawSql": "SELECT $__timeInterval(insert_time) as \"time\", node, intf, avg(tx_bytes), avg(rx_bytes) FROM \"metranova\".\"data_interfacev2\" WHERE ( time >= $__fromTime AND time <= $__toTime ) GROUP BY node, intf, time ORDER BY time ASC LIMIT 1000",
+                    "pluginVersion": "4.20.0",
+                    "rawSql": "SELECT insert_time as \"time\", insert_time, tx_bytes, rx_bytes, node, intf FROM \"metranova\".\"data_interface\" WHERE ( time >= $__fromTime AND time <= $__toTime ) ORDER BY time ASC, node ASC, intf ASC LIMIT 1000",
                     "refId": "A"
                 }
             ],
@@ -287,13 +313,13 @@
         "list": []
     },
     "time": {
-        "from": "now-1h",
+        "from": "now-30m",
         "to": "now"
     },
     "timepicker": {},
     "timezone": "browser",
     "title": "Node Overview",
     "uid": "adbtwx6",
-    "version": 3,
+    "version": 5,
     "weekStart": ""
 }
