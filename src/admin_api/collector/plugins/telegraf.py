@@ -173,7 +173,9 @@ class TelegrafKube(TelegrafPlugin):
         config["outputs"] = {
             "kafka": [
                 {
-                    "brokers": [f"{self.release_name}-metranova-kafka-bootstrap.{self.release_namespace}.svc:9093"],
+                    "brokers": [
+                        f"{self.release_name}-kafka-bootstrap.{self.release_namespace}.svc:9093"
+                    ],
                     "topic": "metranova_snmp",
                     "data_format": "json",
                     "enable_tls": True,
@@ -191,7 +193,9 @@ class TelegrafKube(TelegrafPlugin):
         data = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
-            "metadata": {"name": f"{self.release_name}-telegraf-resource-configurations"},
+            "metadata": {
+                "name": f"{self.release_name}-telegraf-resource-configurations"
+            },
             "data": {},
         }
 
@@ -221,7 +225,9 @@ class TelegrafKube(TelegrafPlugin):
                 await api.create_namespaced_config_map(
                     namespace=self.release_namespace,
                     body=V1ConfigMap(
-                        metadata=V1ObjectMeta(name=f"{self.release_name}-telegraf-resource-configurations"),
+                        metadata=V1ObjectMeta(
+                            name=f"{self.release_name}-telegraf-resource-configurations"
+                        ),
                         data={key: conf_contents},
                     ),
                 )
