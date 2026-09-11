@@ -13,7 +13,6 @@ from admin_api.nodes.model import Node
 from admin_api.settings import get_settings
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
-_CONFIGMAP_NAME = "metranova-collector-resource-configurations"
 
 
 class TelegrafPlugin(DataSourcePlugin):
@@ -100,17 +99,7 @@ class TelegrafPlugin(DataSourcePlugin):
                 "flush_interval": f"{config.interval}s",
             },
             "inputs": {"snmp": snmp_blocks},
-            "outputs": {
-                "kafka": [
-                    {
-                        "brokers": ["kafka:9092"],
-                        "topic": "metranova_snmp",
-                        "data_format": "json",
-                        "version": "3.0.0",
-                    }
-                ],
-                "file": [{"files": ["stdout"], "data_format": "influx"}],
-            },
+            "outputs": {},
         }
 
 
@@ -123,6 +112,17 @@ class TelegrafVscode(TelegrafPlugin):
         print("Rendering telegraf-vscode plugin")
 
         config = self.generate_telegraf_config(c, nodes)
+        config["outputs"] = {
+            "kafka": [
+                {
+                    "brokers": ["kafka:9092"],
+                    "topic": "metranova_snmp",
+                    "data_format": "json",
+                    "version": "3.0.0",
+                }
+            ],
+            "file": [{"files": ["stdout"], "data_format": "influx"}],
+        }
         toml_config = tomli_w.dumps(config)
 
         resource_type = self._safe_resource_type(c.resource_type)
@@ -145,7 +145,8 @@ class TelegrafKube(TelegrafPlugin):
         namespace: str | None = None,
     ):
         self._core_v1_api = core_v1_api
-        self.namespace = namespace or get_settings().kube_namespace
+        self.release_namespace = namespace or get_settings().kube_release_namespace
+        self.release_name = get_settings().kube_release_name
 
     async def render_config(
         self, c: ResourceConfiguration, nodes: list[Node] | None = None
@@ -169,13 +170,28 @@ class TelegrafKube(TelegrafPlugin):
         print("Rendering telegraf-kube plugin")
 
         config = self.generate_telegraf_config(c, nodes)
+        config["outputs"] = {
+            "kafka": [
+                {
+                    "brokers": [f"{self.release_name}-metranova-kafka-bootstrap.{self.release_namespace}.svc:9093"],
+                    "topic": "metranova_snmp",
+                    "data_format": "json",
+                    "enable_tls": True,
+                    "tls_ca": "/etc/telegraf/cluster-ca/ca.crt",
+                    "tls_cert": "/etc/telegraf/certs/user.crt",
+                    "tls_key": "/etc/telegraf/certs/user.key",
+                    "version": "3.0.0",
+                }
+            ],
+            "file": [{"files": ["stdout"], "data_format": "influx"}],
+        }
         resource_type = self._safe_resource_type(c.resource_type)
 
         yaml = YAML()
         data = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
-            "metadata": {"name": _CONFIGMAP_NAME},
+            "metadata": {"name": f"{self.release_name}-telegraf-resource-configurations"},
             "data": {},
         }
 
@@ -196,16 +212,16 @@ class TelegrafKube(TelegrafPlugin):
         key = f"{resource_type}.conf"
         try:
             await api.patch_namespaced_config_map(
-                name=_CONFIGMAP_NAME,
-                namespace=self.namespace,
+                name=f"{self.release_name}-telegraf-resource-configurations",
+                namespace=self.release_namespace,
                 body={"data": {key: conf_contents}},
             )
         except ApiException as e:
             if e.status == 404:
                 await api.create_namespaced_config_map(
-                    namespace=self.namespace,
+                    namespace=self.release_namespace,
                     body=V1ConfigMap(
-                        metadata=V1ObjectMeta(name=_CONFIGMAP_NAME),
+                        metadata=V1ObjectMeta(name=f"{self.release_name}-telegraf-resource-configurations"),
                         data={key: conf_contents},
                     ),
                 )

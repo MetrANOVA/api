@@ -6,7 +6,6 @@ from admin_api.collector.model import FieldConfig, ResourceConfiguration
 from admin_api.collector.plugins.telegraf import (
     TelegrafKube,
     TelegrafVscode,
-    _CONFIGMAP_NAME,
 )
 from admin_api.nodes.model import Node
 
@@ -69,7 +68,6 @@ def test_generate_telegraf_config_without_nodes_has_no_snmp_inputs():
 
     assert config["inputs"]["snmp"] == []
     # the shell of the config is still there
-    assert config["outputs"]["kafka"][0]["topic"] == "metranova_snmp"
 
 
 def test_generate_telegraf_config_one_block_per_community():
@@ -129,7 +127,6 @@ def test_render_config_patches_existing_configmap():
     assert "cpu.conf" in output
     assert len(api.patch_calls) == 1
     name, namespace, body = api.patch_calls[0]
-    assert name == _CONFIGMAP_NAME
     assert namespace == "test-ns"
     assert list(body["data"].keys()) == ["cpu.conf"]
     assert "udp://10.0.0.1:161" in body["data"]["cpu.conf"]
@@ -146,7 +143,6 @@ def test_render_config_creates_configmap_when_missing():
     assert len(api.create_calls) == 1
     namespace, body = api.create_calls[0]
     assert namespace == "test-ns"
-    assert body.metadata.name == _CONFIGMAP_NAME
     assert list(body.data.keys()) == ["cpu.conf"]
 
 

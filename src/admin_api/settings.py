@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     cors_regex: str = r"^(https://((?!-)[A-Za-z0-9-]{1,63}(?!<-)\.)+grnoc\.iu\.edu)$"
     root_path: str = ""
     db_url: str = ""
-    kube_namespace: str = os.getenv("METRANOVA_KUBE_NAMESPACE", "metranova-test")
+    kube_release_namespace: str = os.getenv("METRANOVA_KUBE_RELEASE_NAMESPACE", "metranova-test")
+    kube_release_name: str = os.getenv("METRANOVA_KUBE_RELEASE_NAME", "metranova")
 
 
 @lru_cache()
