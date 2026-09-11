@@ -160,11 +160,6 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     ],
     "data_fields": [
         {
-            "field_name": "oper_status",
-            "field_type": "Nullable(Int64)",
-            "nullable": true
-        },
-        {
             "field_name": "tx_bytes",
             "field_type": "Nullable(Int64)",
             "nullable": true
@@ -246,10 +241,10 @@ docker compose -f .devcontainer/docker-compose.yml up -d
       "is_tag": true
     },
     "rx_bytes": {
-      "oid": ".1.3.6.1.2.1.2.2.1.10"
+      "oid": ".1.3.6.1.2.1.31.1.1.1.6"
     },
     "tx_bytes": {
-      "oid": ".1.3.6.1.2.1.2.2.1.16"
+      "oid": ".1.3.6.1.2.1.31.1.1.1.10"
     }
   },
   "node_selectors": []
