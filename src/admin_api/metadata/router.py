@@ -5,10 +5,11 @@ slug: short for metadata type, e.g. node, interface, temperature. Called "slug" 
 
 import logging
 
-from fastapi import APIRouter, Body, Request, HTTPException
+from fastapi import APIRouter, Body, Depends, Request, HTTPException, Response
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
 from admin_api.metadata.service import MetadataService, build_metadata_id, slugify
+from admin_api.paging import TOTAL_COUNT_HEADER, ListParams, list_params
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
@@ -69,14 +70,27 @@ async def get_metadata_types(req: Request):
 
 
 @router.get("/{slug}")
-async def get_metadata(slug: str, req: Request):
+async def get_metadata(
+    slug: str,
+    req: Request,
+    response: Response,
+    params: ListParams = Depends(list_params),
+):
     """Get the latest version of every record for a given metadata type.
 
     Uses max(created_at) per id to return only the most recent version of each record.
+
+    Supports `limit`/`offset`, a text search (`q`) over the string columns and
+    `sort`/`order` on any scalar column. The number of matching records is
+    returned in the `X-Total-Count` header.
     """
     try:
         metadata = MetadataService(req.app.state.se)
-        return await metadata.get_metadata_records(slug)
+        records, total = await metadata.get_metadata_records(slug, params)
+        response.headers[TOTAL_COUNT_HEADER] = str(total)
+        return records
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error fetching metadata records for type '{slug}': {e}")
         raise HTTPException(

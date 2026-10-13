@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 from datetime import date, datetime
 from pydantic import BaseModel, model_validator, create_model
 
+from admin_api.paging import ListParams, limit_clause, search_clause
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -80,6 +82,17 @@ RESERVED_COLUMNS = {
     "policy_originator",
     "ext",
 }
+
+
+# Columns the text search looks at, and column types that cannot be sorted on.
+SEARCHABLE_TYPES = {
+    "String",
+    "Nullable(String)",
+    "LowCardinality(String)",
+    "LowCardinality(Nullable(String))",
+}
+UNSEARCHED_COLUMNS = {"hash"}
+UNSORTABLE_TYPES = ("Array(", "Tuple(", "Map(", "Nested(", "JSON", "Object(")
 
 
 def compute_record_hash(record: dict) -> str:
@@ -442,9 +455,27 @@ class MetadataService:
         )
         return list(result.named_results())
 
-    async def get_metadata_records(self, slug: str) -> list[dict]:
+    async def _record_columns(self, table: str) -> dict[str, str]:
+        """Map column name to ClickHouse type for a metadata table."""
         result = await self.client.query(
-            """
+            "SELECT name, type FROM system.columns"
+            " WHERE database = {db:String} AND table = {table:String}",
+            parameters={"db": "metranova", "table": table},
+        )
+        return {name: column_type for name, column_type in result.result_rows}
+
+    async def get_metadata_records(
+        self, slug: str, params: ListParams | None = None
+    ) -> tuple[list[dict], int]:
+        """Return the latest version of each record and the number of matching records.
+
+        Without limit/offset every matching record is returned, as before.
+        """
+        params = params or ListParams()
+        table = f"meta_{slug}"
+        parameters = {"db": "metranova", "table": table}
+
+        latest = """
             SELECT *
             FROM (
                 SELECT
@@ -456,7 +487,39 @@ class MetadataService:
                 FROM {db:Identifier}.{table:Identifier} t
             )
             WHERE _rn = 1
-            """,
-            parameters={"db": "metranova", "table": f"meta_{slug}"},
+            """
+
+        sort = "id"
+        if params.q or params.sort:
+            columns = await self._record_columns(table)
+            if params.sort:
+                column_type = columns.get(params.sort)
+                if column_type is None or column_type.startswith(UNSORTABLE_TYPES):
+                    raise ValueError(f"Cannot sort by '{params.sort}'.")
+                sort = params.sort
+            if params.q:
+                searchable = [
+                    self.storage._quoted_identifier(name)
+                    for name, column_type in columns.items()
+                    if column_type in SEARCHABLE_TYPES
+                    and name not in UNSEARCHED_COLUMNS
+                ]
+                latest += " AND " + search_clause(searchable, parameters, params.q)
+
+        count_parameters = dict(parameters)
+        query = (
+            latest
+            + f" ORDER BY {self.storage._quoted_identifier(sort)} {params.direction}, id ASC"
+            + limit_clause(params, parameters)
         )
-        return list(result.named_results())
+        result = await self.client.query(query, parameters=parameters)
+        records = list(result.named_results())
+
+        total = len(records)
+        if params.paged:
+            count = await self.client.query(
+                f"SELECT count() FROM ({latest})", parameters=count_parameters
+            )
+            total = count.result_rows[0][0]
+
+        return records, total
