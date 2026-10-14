@@ -66,14 +66,26 @@ async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
 
 
 @router.get("/")
-async def get_metadata_types(req: Request):
+async def get_metadata_types(
+    req: Request,
+    response: Response,
+    params: ListParams = Depends(list_params),
+):
     """List all registered metadata types.
 
-    Returns the slug of each resource type where type is 'metadata'.
+    Returns the latest definition of each resource type that has metadata fields.
+
+    Supports `limit`/`offset`, a text search (`q`) over name and slug, and
+    `sort`/`order` on name, slug, type, ttl or updated_at. The number of
+    matching types is returned in the `X-Total-Count` header.
     """
     try:
         metadata = MetadataService(req.app.state.se)
-        return await metadata.get_metadata_types()
+        types, total = await metadata.get_metadata_types(params)
+        response.headers[TOTAL_COUNT_HEADER] = str(total)
+        return types
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error fetching metadata types: {e}")
         raise HTTPException(

@@ -213,7 +213,65 @@ def test_list_parameters_are_validated(api, params):
     client, _ = api([])
 
     assert client.get("/metadata/interface", params=params).status_code == 422
+    assert client.get("/metadata/", params=params).status_code == 422
     assert client.get("/transformers/", params=params).status_code == 422
+
+
+# --- GET /metadata/ ---
+
+
+def test_metadata_types_unpaged_lists_latest_version_of_each_type(api):
+    client, ch = api([{"slug": "as"}, {"slug": "interface"}])
+
+    response = client.get("/metadata/")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    assert response.headers["X-Total-Count"] == "2"
+    assert ch.count_queries == []
+    query, parameters = ch.data_queries[0]
+    # A schema change adds a definition row; only the newest one per slug is listed.
+    assert "ORDER BY updated_at DESC, ref DESC LIMIT 1 BY slug" in query
+    assert query.endswith("ORDER BY slug ASC, slug ASC")
+    assert parameters == {}
+
+
+def test_metadata_types_paged_counts_matching_types(api):
+    client, ch = api([{"slug": "interface"}], total=9)
+
+    response = client.get(
+        "/metadata/",
+        params={
+            "q": "inter",
+            "sort": "updated_at",
+            "order": "desc",
+            "limit": 5,
+            "offset": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Total-Count"] == "9"
+    query, parameters = ch.data_queries[0]
+    assert "positionCaseInsensitiveUTF8(name, {q:String})" in query
+    assert "positionCaseInsensitiveUTF8(slug, {q:String})" in query
+    assert "ORDER BY updated_at DESC, slug ASC LIMIT {limit:UInt32}" in query
+    assert parameters == {"q": "inter", "limit": 5, "offset": 5}
+    count_query, count_parameters = ch.count_queries[0]
+    assert "LIMIT 1 BY slug" in count_query
+    assert "positionCaseInsensitiveUTF8" in count_query
+    assert "{limit:UInt32}" not in count_query
+    assert count_parameters == {"q": "inter"}
+
+
+@pytest.mark.parametrize("column", ["meta_fields", "identifier", "slug; DROP TABLE x"])
+def test_metadata_types_rejects_unsortable_column(api, column):
+    client, ch = api([{"slug": "as"}])
+
+    response = client.get("/metadata/", params={"sort": column})
+
+    assert response.status_code == 400
+    assert ch.queries == []
 
 
 # --- GET /transformers/ ---

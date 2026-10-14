@@ -92,6 +92,17 @@ SEARCHABLE_TYPES = {
     "LowCardinality(Nullable(String))",
 }
 UNSEARCHED_COLUMNS = {"hash"}
+TYPE_COLUMNS = [
+    "name",
+    "slug",
+    "type",
+    "meta_fields",
+    "identifier",
+    "ttl",
+    "updated_at",
+]
+TYPE_SORT_COLUMNS = {"name", "slug", "type", "ttl", "updated_at"}
+TYPE_SEARCH_COLUMNS = ["name", "slug"]
 UNSORTABLE_TYPES = ("Array(", "Tuple(", "Map(", "Nested(", "JSON", "Object(")
 
 
@@ -362,11 +373,49 @@ class MetadataService:
                 )
         return definition
 
-    async def get_metadata_types(self):
-        result = await self.client.query(
-            f"SELECT name, slug, type, meta_fields, identifier, ttl, updated_at FROM {self.storage._qualified_table_name('definition')} WHERE length(meta_fields) > 0"
+    async def get_metadata_types(
+        self, params: ListParams | None = None
+    ) -> tuple[list[dict], int]:
+        """Return the latest version of each metadata type and the number of matching types.
+
+        A schema change stores a new definition row, so only the newest row per
+        slug is listed. Without limit/offset every matching type is returned.
+        """
+        params = params or ListParams()
+        sort = params.sort or "slug"
+        if sort not in TYPE_SORT_COLUMNS:
+            raise ValueError(f"Cannot sort by '{sort}'.")
+
+        parameters = {}
+        latest = (
+            "SELECT * FROM ("
+            f"SELECT {', '.join(TYPE_COLUMNS)} FROM {self.storage._qualified_table_name('definition')}"
+            " WHERE length(meta_fields) > 0"
+            " ORDER BY updated_at DESC, ref DESC LIMIT 1 BY slug"
+            ")"
         )
-        return list(result.named_results())
+        if params.q:
+            latest += " WHERE " + search_clause(
+                TYPE_SEARCH_COLUMNS, parameters, params.q
+            )
+
+        count_parameters = dict(parameters)
+        result = await self.client.query(
+            latest
+            + f" ORDER BY {sort} {params.direction}, slug ASC"
+            + limit_clause(params, parameters),
+            parameters=parameters,
+        )
+        types = list(result.named_results())
+
+        total = len(types)
+        if params.paged:
+            count = await self.client.query(
+                f"SELECT count() FROM ({latest})", parameters=count_parameters
+            )
+            total = count.result_rows[0][0]
+
+        return types, total
 
     async def create_metadata_record(
         self, definition: dict[str, any], record: dict[str, any]
