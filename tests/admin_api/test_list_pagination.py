@@ -144,6 +144,8 @@ def test_metadata_records_unpaged_returns_everything_with_total(api):
     query, parameters = ch.data_queries[0]
     assert "LIMIT" not in query
     assert "ORDER BY `id` ASC, id ASC" in query
+    # The row_number() helper column stays out of the response.
+    assert "SELECT * EXCEPT (_rn)" in query
     assert parameters == {"db": "metranova", "table": "meta_interface"}
 
 

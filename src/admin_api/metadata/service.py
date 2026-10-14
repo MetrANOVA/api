@@ -476,7 +476,7 @@ class MetadataService:
         parameters = {"db": "metranova", "table": table}
 
         latest = """
-            SELECT *
+            SELECT * EXCEPT (_rn)
             FROM (
                 SELECT
                     t.*,
