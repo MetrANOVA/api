@@ -8,11 +8,23 @@ import logging
 from fastapi import APIRouter, Body, Depends, Request, HTTPException, Response
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
+from starlette.convertors import PathConvertor, register_url_convertor
 from admin_api.metadata.service import MetadataService, build_metadata_id, slugify
 from admin_api.paging import TOTAL_COUNT_HEADER, ListParams, list_params
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
+
+
+class RecordIdConvertor(PathConvertor):
+    """A record id in the URL. Ids are built from the identifier fields and can
+    contain slashes (interface names such as xe-0/0/0), so the segment may span
+    several path parts; unlike `path` it is never empty."""
+
+    regex = ".+"
+
+
+register_url_convertor("record_id", RecordIdConvertor())
 
 
 class CreateMetadataTypeReq(BaseModel):
@@ -166,7 +178,7 @@ async def create_metadata(slug: str, req: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{slug}/{mid}")
+@router.get("/{slug}/{mid:record_id}")
 async def get_metadata(slug: str, mid: str, req: Request):
     """Get the version history for a specific metadata record.
 
@@ -188,7 +200,7 @@ async def get_metadata(slug: str, mid: str, req: Request):
         )
 
 
-@router.put("/{slug}/{mid}/{version}")
+@router.put("/{slug}/{mid:record_id}/{version}")
 async def update_metadata_version(
     slug: str, mid: str, version: str, req: Request, record: dict = Body(...)
 ):
