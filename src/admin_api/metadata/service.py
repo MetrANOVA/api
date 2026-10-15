@@ -42,12 +42,16 @@ CH_TYPE_MAP: dict[str, type] = {
     "DateTime": datetime,
     "DateTime64": datetime,
     "Array": list,
+    "Tuple": list,
+    "IPv4": str,
     "IPv6": str,
 }
 
 
 def resolve_python_type(ch_type: str) -> type:
     """Strip parameterization (e.g. DateTime64(3, 'UTC')) and resolve."""
+    while ch_type.startswith(("Nullable(", "LowCardinality(")):
+        ch_type = ch_type[ch_type.index("(") + 1 : -1]
     base = re.split(r"[\(\s]", ch_type)[0]
     return CH_TYPE_MAP.get(base, str)  # fall back to str for unknown types
 
@@ -457,6 +461,9 @@ class MetadataService:
             )
             WHERE _rn = 1
             """,
-            parameters={"db": "metranova", "table": f"meta_{slug}"},
+            parameters={"db": self.storage.database, "table": f"meta_{slug}"},
         )
-        return list(result.named_results())
+        return [
+            {key: value for key, value in row.items() if key != "_rn"}
+            for row in result.named_results()
+        ]

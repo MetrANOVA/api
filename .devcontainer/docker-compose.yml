@@ -82,6 +82,9 @@ services:
           --topic metranova_snmp \
           --partitions 3 \
           --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic metranova_flow \
+          --partitions 3 --replication-factor 1
         echo "Topics created successfully"
     volumes:
       - kafka_data:/var/lib/kafka/data
@@ -210,6 +213,51 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # Flow ingestion only: device/interface tables are managed by the manual bootstrap.
+  pipeline-flow:
+    build:
+      context: ../packages/pipeline
+      dockerfile: Dockerfile
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      PIPELINE_YAML: pipelines/data_flow.yml
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_DATABASE: metranova
+      CLICKHOUSE_USERNAME: default
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: metranova_flow
+      KAFKA_CONSUMER_GROUP: dev-flow-ingestion
+      CLICKHOUSE_CACHER_TABLES: meta_device:@loopback_ip,meta_interface:device_id:flow_index:edge
+      CLICKHOUSE_CACHER_REFRESH_INTERVAL: "10"
+      CLICKHOUSE_BATCH_TIMEOUT: "1"
+    restart: unless-stopped
+
+  snmp-index-worker:
+    profiles: ["metadata"]
+    image: harbor.k8s.grnoc.iu.edu/ghcr-proxy/ndca/metranova-meta-manager:latest
+    command: ["metranova-snmp-index-worker"]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    environment:
+      META_MANAGER_METRANOVA_URL: http://api:8000
+      META_MANAGER_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      META_MANAGER_KAFKA_TOPICS: metranova_snmp
+      META_MANAGER_KAFKA_GROUP_ID: dev-snmp-metadata-index
+      META_MANAGER_INDEX_REFRESH_SECONDS: "5"
+      META_MANAGER_NOOP: "false"
+      META_MANAGER_LOG_LEVEL: INFO
+    restart: unless-stopped
+
   # Python 3.14 dev container
   # ---------------------------------------------------------------------------
   api:
@@ -235,4 +283,3 @@ volumes:
   clickhouse_data:
   grafana_data:
   kafka_data:
-

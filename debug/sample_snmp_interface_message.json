@@ -1,8 +1,9 @@
 {
   "name": "interface",
-  "timestamp": 1751328000,
+  "timestamp": 1791914400,
   "tags": {
     "protocol": "snmp",
+    "index": "42",
     "node": "core-router-01.example.net",
     "intf": "GigabitEthernet0/0/1"
   },

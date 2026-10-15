@@ -220,3 +220,127 @@ def test_create_metadata_record_uses_scalar_identifier_field_for_id():
     insert_call = storage.client.insert_calls[0]
     id_index = insert_call["column_names"].index("id")
     assert insert_call["data"][0][id_index] == "341"
+
+
+def test_id_identifier_does_not_allow_missing_required_fields():
+    service = MetadataService(DummyStorage(table_exists=True))
+    definition = {
+        "identifier": ["id"],
+        "meta_fields": [
+            {"field_name": "hostname", "field_type": "String", "nullable": False},
+        ],
+    }
+    with pytest.raises(ValueError, match="Field 'hostname' is required"):
+        asyncio.run(service.validate_metadata_record(definition, {"id": "router"}))
+    asyncio.run(service.validate_metadata_record(
+        definition, {"id": "router", "hostname": "router.example.net"},
+    ))
+
+
+def test_metadata_correction_keeps_version_without_merging_existing_fields():
+    from datetime import datetime
+
+    storage = DummyStorage(table_exists=True)
+    storage.client = QueryingDummyClient([{
+        "id": "router::port", "ref": "router::port__v1",
+        "created_at": datetime(2026, 1, 1),
+        "insert_time": datetime(2026, 1, 1),
+        "updated_at": datetime(2026, 1, 1),
+        "description": "preserve", "edge": True,
+        "ext": {"custom": "preserve"}, "flow_index": None,
+    }])
+    service = MetadataService(storage)
+    payload = {"id": "router::port", "flow_index": 42, "ext": {"custom": "incoming"}}
+    asyncio.run(service.update_metadata_record(
+        {"slug": "interface", "identifier": ["id"]},
+        payload, "1",
+    ))
+    insert = storage.client.insert_calls[0]
+    record = dict(zip(insert["column_names"], insert["data"][0]))
+    assert "description" not in record
+    assert "edge" not in record
+    assert record["ext"] == {}
+    assert record["flow_index"] == 42
+    assert record["ref"] == "router::port__v1"
+    assert record["created_at"] == datetime(2026, 1, 1)
+    assert "insert_time" not in record
+    assert "ref" not in payload
+
+
+def test_metadata_change_creates_new_version_without_mutating_history():
+    from datetime import datetime
+
+    old = {
+        "id": "router", "ref": "router__v1", "hash": "old-hash",
+        "hostname": "old-name", "created_at": datetime(2026, 1, 1),
+    }
+    storage = DummyStorage(table_exists=True)
+    storage.client = QueryingDummyClient([old])
+    service = MetadataService(storage)
+    result = asyncio.run(service.create_metadata_record(
+        {"slug": "device", "identifier": ["id"]},
+        {"id": "router", "hostname": "new-name", "ext": {"custom": "incoming"}},
+    ))
+    assert result["ref"] == "router__v2"
+    assert old["hostname"] == "old-name"
+    assert old["ref"] == "router__v1"
+    assert len(storage.client.insert_calls) == 1
+    insert = storage.client.insert_calls[0]
+    record = dict(zip(insert["column_names"], insert["data"][0]))
+    assert record["hostname"] == "new-name"
+    assert record["ext"] == {}
+
+
+def test_put_returns_corrected_ref_when_service_copies_request_body(monkeypatch):
+    from datetime import datetime
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from admin_api.metadata.router import router
+
+    async def get_type(self, slug):
+        return {
+            "slug": slug, "identifier": ["id"],
+            "meta_fields": [
+                {"field_name": "hostname", "field_type": "String", "nullable": False},
+            ],
+        }
+
+    monkeypatch.setattr(MetadataService, "get_metadata_type", get_type)
+    storage = DummyStorage(table_exists=True)
+    storage.client = QueryingDummyClient([{
+        "id": "router", "ref": "router__v3", "hostname": "typo",
+        "created_at": datetime(2026, 1, 1),
+    }])
+    app = FastAPI()
+    app.state.se = storage
+    app.include_router(router, prefix="/metadata")
+    client = TestClient(app)
+
+    response = client.put(
+        "/metadata/device/router/3", json={"id": "router", "hostname": "corrected"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"id": "router", "ref": "router__v3"}
+    insert = storage.client.insert_calls[0]
+    record = dict(zip(insert["column_names"], insert["data"][0]))
+    assert record["ref"] == "router__v3"
+    assert record["hostname"] == "corrected"
+
+    response = client.put("/metadata/device/router/3", json={"id": "router"})
+    assert response.status_code == 400
+    assert len(storage.client.insert_calls) == 1
+
+
+def test_metadata_list_uses_configured_database_and_hides_internal_rank():
+    source = {"id": "router", "ref": "router__v1", "_rn": 1}
+    storage = DummyStorage(table_exists=True)
+    storage.database = "custom_database"
+    storage.client = QueryingDummyClient([source])
+    records = asyncio.run(MetadataService(storage).get_metadata_records("device"))
+    assert storage.client.query_calls[0][1] == {
+        "db": "custom_database", "table": "meta_device",
+    }
+    assert records == [{"id": "router", "ref": "router__v1"}]
+    assert source["_rn"] == 1

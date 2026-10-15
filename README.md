@@ -31,6 +31,9 @@ Use the bootstrap script to upload type and transformer definitions from YAML.
 
 - `python bin/bootstrap.py --from bootstrap --api-url http://localhost:8000`
 
+For pipeline-created device/interface metadata, use the flow compatibility
+bootstrap below instead of importing the legacy device/interface YAML files.
+
 Notes:
 
 - `--from` accepts either a single YAML file or a directory.
@@ -270,3 +273,80 @@ docker compose -f .devcontainer/docker-compose.yml up -d
   "node_selectors": []
 }
 ```
+# Flow metadata compatibility bootstrap
+
+For installations using pipeline-created metadata tables, run this **instead of
+loading the legacy `bootstrap/types/device.yaml` and `interface.yaml` definitions**.
+Those definitions have a different interface schema. This is a manual demo
+compatibility step, not a schema ownership migration.
+
+```bash
+# Inside the installed API environment, using its ClickHouse connection variables:
+python bin/bootstrap-flow-metadata.py --dry-run
+python bin/bootstrap-flow-metadata.py
+
+# In the development container:
+docker exec -w /app api_devcontainer-api-1 /app/.venv/bin/python bin/bootstrap-flow-metadata.py
+docker compose -p api_devcontainer -f .devcontainer/docker-compose.yml up -d --build pipeline-flow
+python3 bin/inject-kafka-message.py debug/sample_flow_message.json --topic metranova_flow
+```
+
+**The automated metadata writers are not ready for use.** The current SNMP
+worker sends partial PUTs, which the API no longer supports. Both it and the CDS
+importer use PUT for ordinary changes; these must create new versions through
+POST instead. PUT remains available for deliberate corrections to a specified
+historical version, and the API continues to enforce required fields.
+
+The optional SNMP index worker uses the same private meta-manager image as the
+Kubernetes deployment. Authenticate to the registry if required. The published
+image must include the new `metranova-snmp-index-worker` command. Image
+verification is deferred until publication. After the write behavior is fixed,
+start the API (`python bin/start-admin-api.py` inside the devcontainer) first,
+then enable the worker:
+
+```bash
+docker compose -p api_devcontainer -f .devcontainer/docker-compose.yml \
+  --profile metadata pull snmp-index-worker
+docker compose -p api_devcontainer -f .devcontainer/docker-compose.yml \
+  --profile metadata up -d snmp-index-worker
+python3 bin/inject-kafka-message.py debug/sample_snmp_interface_message.json
+```
+
+The worker uses its own Kafka group and updates `flow_index` through the API,
+retrying when imported metadata is not present yet. It does not run CDS import;
+run `metranova-meta-manager` separately with your CDS settings. No sibling source
+checkout is needed to run the worker.
+
+The bootstrap creates `meta_device` and `meta_interface` when absent, or validates
+existing pipeline schemas before adding API timestamps and policy columns.
+It registers the actual columns with identifier `id`, preserving existing
+records, IDs, references, engines, and additional columns. Conflicting existing
+definitions are rejected rather than overwritten. DDL uses the detected
+ClickHouse cluster; run one bootstrap process at a time. Reruns are safe.
+Neither external metadata populators nor their tables are changed.
+
+The dev flow service consumes `metranova_flow` with its own consumer group,
+does not run metadata file import, and refreshes its metadata cache every ten
+seconds. Populate metadata through the API/meta-manager before expecting
+resolved flow references.
+
+`debug/sample_flow_message.json` is synthetic, not a production capture or proof
+of the production message format. Its timestamps are illustrative; old replayed
+data may be removed by retention policies. Use a fresh production capture to
+verify the actual message format.
+
+`debug/sample_snmp_interface_message.json` originated as a production capture,
+but its timestamp was changed for local replay and `tags.index` was added
+synthetically. These edits do not establish that production Telegraf emits an
+index. Confirm `tags.index` from a fresh production capture and the deployed
+Telegraf configuration before relying on SNMP index enrichment.
+
+The meta-manager uses its own read-only ClickHouse connection to discover
+distinct node names from recent `data_interface` records and exporter device
+IDs from recent `data_flow` records. It tolerates absent data tables, not
+incompatible schemas, and also syncs existing devices and enumerates their
+CDS interfaces. Metadata writes still go through the API.
+SNMP index enrichment is a separate meta-manager worker; see that repository's
+README. Edge classification is left unchanged. Existing unresolved flow
+interface references cannot be reconstructed because raw indices are not
+retained by the current shared flow processor.

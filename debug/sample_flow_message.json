@@ -1,0 +1,18 @@
+{
+  "writer_id": "nfacctd",
+  "label": "demo-flow",
+  "timestamp_start": 1791914400.0,
+  "timestamp_end": 1791914401.0,
+  "peer_ip_src": "192.0.2.1",
+  "ip_src": "192.0.2.10",
+  "ip_dst": "198.51.100.20",
+  "as_src": 64500,
+  "as_dst": 64501,
+  "port_src": 443,
+  "port_dst": 25198,
+  "ip_proto": "tcp",
+  "iface_in": 42,
+  "iface_out": 42,
+  "bytes": 1000,
+  "packets": 10
+}

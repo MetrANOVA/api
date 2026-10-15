@@ -152,7 +152,7 @@ async def create_metadata(slug: str, req: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{slug}/{mid}")
+@router.get("/{slug}/{mid:path}")
 async def get_metadata(slug: str, mid: str, req: Request):
     """Get the version history for a specific metadata record.
 
@@ -174,7 +174,7 @@ async def get_metadata(slug: str, mid: str, req: Request):
         )
 
 
-@router.put("/{slug}/{mid}/{version}")
+@router.put("/{slug}/{mid:path}/{version}")
 async def update_metadata_version(
     slug: str, mid: str, version: str, req: Request, record: dict = Body(...)
 ):
@@ -205,7 +205,7 @@ async def update_metadata_version(
 
     try:
         await metadata.update_metadata_record(type_def, record, version)
-        return {"id": record["id"], "ref": record["ref"]}
+        return {"id": record["id"], "ref": f"{record['id']}__v{version}"}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
