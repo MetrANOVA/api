@@ -58,7 +58,7 @@ INTERFACE_FIELDS = [
     ("remote_interface_id", "LowCardinality(Nullable(String))"),
     ("remote_interface_ref", "Nullable(String)"),
     ("remote_organization_id", "LowCardinality(Nullable(String))"),
-    ("remote_organization_ref", "LowCardinality(Nullable(String))"),
+    ("remote_organization_ref", "Nullable(String)"),
 ]
 BASE_FIELDS = [
     ("id", "String"), ("ref", "String"), ("hash", "String"),

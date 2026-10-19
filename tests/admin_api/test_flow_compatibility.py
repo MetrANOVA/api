@@ -1,4 +1,5 @@
 import asyncio
+import ast
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,11 +14,46 @@ spec = importlib.util.spec_from_file_location(
 )
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)
-BASE_FIELDS = bootstrap.BASE_FIELDS
 COMPATIBILITY_FIELDS = bootstrap.COMPATIBILITY_FIELDS
-DEVICE_FIELDS = bootstrap.DEVICE_FIELDS
-INTERFACE_FIELDS = bootstrap.INTERFACE_FIELDS
 bootstrap_flow_metadata = bootstrap.bootstrap_flow_metadata
+
+
+def pipeline_columns(filename, class_name):
+    # Read schema declarations without importing the pipeline's runtime dependencies.
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "packages" / "pipeline" / "metranova" / "processors" / "clickhouse"
+        / filename
+    )
+    tree = ast.parse(source.read_text())
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+    constructor = next(
+        node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    declarations = []
+    for node in constructor.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self" and target.attr == "column_defs"
+            for target in node.targets
+        ):
+            declarations.append(node.value)
+        elif (
+            isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "extend"
+            and isinstance(node.value.func.value, ast.Attribute)
+            and isinstance(node.value.func.value.value, ast.Name)
+            and node.value.func.value.value.id == "self"
+            and node.value.func.value.attr == "column_defs"
+        ):
+            declarations.append(node.value.args[0])
+    assert len(declarations) == 1, f"Review schema extraction for {class_name}"
+    return {
+        name: "JSON" if name == "ext" else typ.split(" DEFAULT ")[0]
+        for name, typ, _ in ast.literal_eval(declarations[0])
+    }
 
 
 class Client:
@@ -50,9 +86,10 @@ class Storage:
     metadata_engine = "MergeTree"
 
     def __init__(self):
+        base = pipeline_columns("base.py", "BaseMetadataProcessor")
         self.client = Client({
-            "meta_device": {n: t.split(" DEFAULT ")[0] for n, t in BASE_FIELDS + DEVICE_FIELDS},
-            "meta_interface": {n: t.split(" DEFAULT ")[0] for n, t in BASE_FIELDS + INTERFACE_FIELDS},
+            "meta_device": {**base, **pipeline_columns("device.py", "DeviceMetadataProcessor")},
+            "meta_interface": {**base, **pipeline_columns("interface.py", "InterfaceMetadataProcessor")},
         })
         self.existing = {}
 
@@ -91,6 +128,39 @@ def test_dry_run_does_not_write():
     asyncio.run(bootstrap_flow_metadata(storage, dry_run=True))
     assert storage.client.commands == []
     assert storage.client.inserts == []
+
+
+def test_bootstrap_schemas_match_pipeline_declarations():
+    storage = Storage()
+    for table, fields in (
+        ("meta_device", bootstrap.DEVICE_FIELDS),
+        ("meta_interface", bootstrap.INTERFACE_FIELDS),
+    ):
+        expected = {
+            name: typ.split(" DEFAULT ")[0]
+            for name, typ in bootstrap.BASE_FIELDS + fields
+        }
+        assert expected == storage.client.tables[table]
+
+
+def test_wrong_remote_organization_ref_type_is_caught_before_writes(monkeypatch):
+    monkeypatch.setattr(bootstrap, "INTERFACE_FIELDS", [
+        (name, "LowCardinality(Nullable(String))" if name == "remote_organization_ref" else typ)
+        for name, typ in bootstrap.INTERFACE_FIELDS
+    ])
+    storage = Storage()
+    with pytest.raises(ValueError, match="remote_organization_ref"):
+        asyncio.run(bootstrap_flow_metadata(storage))
+    assert storage.client.commands == []
+    assert storage.client.inserts == []
+
+
+def test_adoption_preserves_typed_json_extension():
+    storage = Storage()
+    extension = "JSON(sap_name Nullable(String), vrtr_id LowCardinality(Nullable(String)))"
+    storage.client.tables["meta_interface"]["ext"] = extension
+    asyncio.run(bootstrap_flow_metadata(storage))
+    assert storage.client.tables["meta_interface"]["ext"] == extension
 
 
 def test_preflight_rejects_incompatible_table_before_any_ddl():
