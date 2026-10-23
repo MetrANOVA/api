@@ -148,7 +148,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     "name": "interface",
     "meta_fields": [
         {
-            "field_name": "node",
+            "field_name": "device",
             "field_type": "String",
             "nullable": false
         },
@@ -160,17 +160,17 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     ],
     "data_fields": [
         {
-            "field_name": "tx_bytes",
+            "field_name": "output",
             "field_type": "Nullable(Int64)",
             "nullable": true
         },
         {
-            "field_name": "rx_bytes",
+            "field_name": "input",
             "field_type": "Nullable(Int64)",
             "nullable": true
         },
         {
-            "field_name": "node",
+            "field_name": "device",
             "field_type": "String",
             "nullable": false
         },
@@ -181,7 +181,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d
         }
     ],
     "identifier": [
-      "node","intf"
+      "device","intf"
     ],
     "ttl": "365 DAY"
 }
@@ -192,7 +192,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d
     "name": "cpu",
     "meta_fields": [
         {
-            "field_name": "node",
+            "field_name": "device",
             "field_type": "String",
             "nullable": false
         },
@@ -209,7 +209,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d
             "nullable": true
         },
         {
-            "field_name": "node",
+            "field_name": "device",
             "field_type": "String",
             "nullable": false
         },
@@ -220,7 +220,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d
         }
     ],
     "identifier": [
-      "node","cpu"
+      "device","cpu"
     ],
     "ttl": "365 DAY"
 }
@@ -240,10 +240,10 @@ docker compose -f .devcontainer/docker-compose.yml up -d
       "oid": ".1.3.6.1.2.1.31.1.1.1.1",
       "is_tag": true
     },
-    "rx_bytes": {
+    "input": {
       "oid": ".1.3.6.1.2.1.31.1.1.1.6"
     },
-    "tx_bytes": {
+    "output": {
       "oid": ".1.3.6.1.2.1.31.1.1.1.10"
     }
   },
