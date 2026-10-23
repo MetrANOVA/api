@@ -99,7 +99,7 @@ def test_generate_telegraf_config_carries_field_and_table_mappings():
         "inputs"
     ]["snmp"][0]
 
-    assert {f["name"] for f in block["field"]} == {"node"}
+    assert block["agent_host_tag"] == "device"
     table = block["table"][0]
     assert table["name"] == "interface"
     assert {f["name"] for f in table["field"]} == {"intf", "input"}
