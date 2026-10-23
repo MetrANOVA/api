@@ -38,7 +38,7 @@ class TelegrafPlugin(DataSourcePlugin):
         share that community. No nodes means no SNMP inputs.
         """
 
-        scalar_fields = [{"name": "node", "oid": ".1.3.6.1.2.1.1.5.0", "is_tag": True}]
+        scalar_fields = []
         table_fields = []
 
         for k, oid in config.field_mappings.items():
@@ -81,6 +81,7 @@ class TelegrafPlugin(DataSourcePlugin):
         for community, group in by_community.items():
             block: dict[str, Any] = {
                 "agents": [f"udp://{n.host}:{n.port}" for n in group],
+                "agent_host_tag": "device",
                 "version": version,
                 "community": community,
                 "interval": f"{config.interval}s",
