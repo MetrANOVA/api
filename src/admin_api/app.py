@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import admin_api.logs as logs
 from .settings import get_settings
+from .paging import TOTAL_COUNT_HEADER
 
 from admin_api.resource_type.router import (
     router as resource_type_router,
@@ -45,6 +46,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[TOTAL_COUNT_HEADER],
 )
 
 

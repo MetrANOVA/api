@@ -2,7 +2,7 @@ import logging
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from .model import (
     BatchCreateTransformerRequest,
@@ -15,6 +15,7 @@ from .model import (
     UpdateTransformerColumnRequest,
 )
 from .service import TransformerService
+from ..paging import TOTAL_COUNT_HEADER, ListParams, list_params
 
 logger = logging.getLogger(__name__)
 
@@ -237,11 +238,25 @@ async def create_transformer(
 
 @router.get("/", tags=["transformer"])
 async def get_all_transformers(
+    response: Response,
     definition_ref: Optional[str] = Query(default=None),
+    params: ListParams = Depends(list_params),
     service: TransformerService = Depends(),
 ):
+    """List transformers.
+
+    Supports `limit`/`offset`, a text search (`q`) over id, name, description
+    and definition_ref, and `sort`/`order`. The number of matching transformers
+    is returned in the `X-Total-Count` header.
+    """
     try:
-        return await service.get_all_transformers(definition_ref=definition_ref)
+        transformers, total = await service.get_all_transformers(
+            definition_ref=definition_ref, params=params
+        )
+        response.headers[TOTAL_COUNT_HEADER] = str(total)
+        return transformers
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Error fetching transformers")
 
