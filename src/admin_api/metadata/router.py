@@ -5,13 +5,26 @@ slug: short for metadata type, e.g. node, interface, temperature. Called "slug" 
 
 import logging
 
-from fastapi import APIRouter, Body, Request, HTTPException
+from fastapi import APIRouter, Body, Depends, Request, HTTPException, Response
 from metranova.storage.clickhouse import Clickhouse, MetadataField
 from pydantic import BaseModel
+from starlette.convertors import PathConvertor, register_url_convertor
 from admin_api.metadata.service import MetadataService, build_metadata_id, slugify
+from admin_api.paging import TOTAL_COUNT_HEADER, ListParams, list_params
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metadata resources"])
+
+
+class RecordIdConvertor(PathConvertor):
+    """A record id in the URL. Ids are built from the identifier fields and can
+    contain slashes (interface names such as xe-0/0/0), so the segment may span
+    several path parts; unlike `path` it is never empty."""
+
+    regex = ".+"
+
+
+register_url_convertor("record_id", RecordIdConvertor())
 
 
 class CreateMetadataTypeReq(BaseModel):
@@ -53,14 +66,26 @@ async def create_metadata_type(req: Request, body: CreateMetadataTypeReq):
 
 
 @router.get("/")
-async def get_metadata_types(req: Request):
+async def get_metadata_types(
+    req: Request,
+    response: Response,
+    params: ListParams = Depends(list_params),
+):
     """List all registered metadata types.
 
-    Returns the slug of each resource type where type is 'metadata'.
+    Returns the latest definition of each resource type that has metadata fields.
+
+    Supports `limit`/`offset`, a text search (`q`) over name and slug, and
+    `sort`/`order` on name, slug, type, ttl or updated_at. The number of
+    matching types is returned in the `X-Total-Count` header.
     """
     try:
         metadata = MetadataService(req.app.state.se)
-        return await metadata.get_metadata_types()
+        types, total = await metadata.get_metadata_types(params)
+        response.headers[TOTAL_COUNT_HEADER] = str(total)
+        return types
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error fetching metadata types: {e}")
         raise HTTPException(
@@ -69,14 +94,27 @@ async def get_metadata_types(req: Request):
 
 
 @router.get("/{slug}")
-async def get_metadata(slug: str, req: Request):
+async def get_metadata(
+    slug: str,
+    req: Request,
+    response: Response,
+    params: ListParams = Depends(list_params),
+):
     """Get the latest version of every record for a given metadata type.
 
     Uses max(created_at) per id to return only the most recent version of each record.
+
+    Supports `limit`/`offset`, a text search (`q`) over the string columns and
+    `sort`/`order` on any scalar column. The number of matching records is
+    returned in the `X-Total-Count` header.
     """
     try:
         metadata = MetadataService(req.app.state.se)
-        return await metadata.get_metadata_records(slug)
+        records, total = await metadata.get_metadata_records(slug, params)
+        response.headers[TOTAL_COUNT_HEADER] = str(total)
+        return records
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error fetching metadata records for type '{slug}': {e}")
         raise HTTPException(
@@ -152,7 +190,7 @@ async def create_metadata(slug: str, req: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{slug}/{mid}")
+@router.get("/{slug}/{mid:record_id}")
 async def get_metadata(slug: str, mid: str, req: Request):
     """Get the version history for a specific metadata record.
 
@@ -174,7 +212,7 @@ async def get_metadata(slug: str, mid: str, req: Request):
         )
 
 
-@router.put("/{slug}/{mid}/{version}")
+@router.put("/{slug}/{mid:record_id}/{version}")
 async def update_metadata_version(
     slug: str, mid: str, version: str, req: Request, record: dict = Body(...)
 ):

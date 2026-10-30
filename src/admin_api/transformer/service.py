@@ -6,8 +6,21 @@ from fastapi import Depends
 from typing import Optional
 from ..context import get_clickhouse
 from metranova.transformer.operations import operations, validate_config
+from ..paging import ListParams, limit_clause, search_clause
 
 logger = logging.getLogger(__name__)
+
+TRANSFORMER_COLUMNS = [
+    "id",
+    "ref",
+    "definition_ref",
+    "name",
+    "slug",
+    "description",
+    "match_field",
+    "updated_at",
+]
+TRANSFORMER_SEARCH_COLUMNS = ["id", "name", "description", "definition_ref"]
 
 
 class TransformerService:
@@ -63,40 +76,55 @@ class TransformerService:
             return False, {"message": f"Error creating transformer: {e}"}
 
     async def get_all_transformers(
-        self, definition_ref: str | None = None
-    ) -> list[dict]:
+        self, definition_ref: str | None = None, params: ListParams | None = None
+    ) -> tuple[list[dict], int]:
+        """Return transformers and the number of transformers matching the filters.
+
+        Without limit/offset every matching transformer is returned, as before.
+        """
+        params = params or ListParams()
+        sort = params.sort or "name"
+        if sort not in TRANSFORMER_COLUMNS:
+            raise ValueError(f"Cannot sort by '{sort}'.")
 
         table_name = self.storage._qualified_table_name("transformer")
+        parameters = {}
+        conditions = []
         if definition_ref is not None:
-            result = await self.storage.client.query(
-                f"SELECT id, ref, definition_ref, name, slug, description, match_field, updated_at FROM {table_name}"
-                + " WHERE definition_ref LIKE {definition_ref:String} ORDER BY name",
-                parameters={"definition_ref": definition_ref},
+            conditions.append("definition_ref LIKE {definition_ref:String}")
+            parameters["definition_ref"] = definition_ref
+        if params.q:
+            conditions.append(
+                search_clause(TRANSFORMER_SEARCH_COLUMNS, parameters, params.q)
             )
-        else:
-            result = await self.storage.client.query(
-                f"SELECT id, ref, definition_ref, name, slug, description, match_field, updated_at FROM {table_name}"
-                + " ORDER BY name",
-                parameters={},
-            )
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        count_parameters = dict(parameters)
+        result = await self.storage.client.query(
+            f"SELECT {', '.join(TRANSFORMER_COLUMNS)} FROM {table_name}"
+            + where
+            + f" ORDER BY {sort} {params.direction}, ref ASC"
+            + limit_clause(params, parameters),
+            parameters=parameters,
+        )
 
         if hasattr(result, "named_results"):
-            return list(result.named_results())
+            rows = list(result.named_results())
+        else:
+            rows = [
+                dict(zip(TRANSFORMER_COLUMNS, row))
+                for row in (getattr(result, "result_rows", None) or [])
+            ]
 
-        columns = [
-            "id",
-            "ref",
-            "definition_ref",
-            "name",
-            "slug",
-            "description",
-            "match_field",
-            "updated_at",
-        ]
-        return [
-            dict(zip(columns, row))
-            for row in (getattr(result, "result_rows", None) or [])
-        ]
+        total = len(rows)
+        if params.paged:
+            count = await self.storage.client.query(
+                f"SELECT count() FROM {table_name}" + where,
+                parameters=count_parameters,
+            )
+            total = count.result_rows[0][0]
+
+        return rows, total
 
     async def get_transformer_by_id(self, transformer_id: str) -> tuple[bool, dict]:
         table_name = self.storage._qualified_table_name("transformer")
