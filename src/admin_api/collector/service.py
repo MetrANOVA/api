@@ -11,13 +11,16 @@ from admin_api.resource_type.router import (
 )
 
 from .model import (
+    ApplyResponse,
     FieldConfig,
+    PlanResponse,
     ResourceConfiguration,
     ResourceConfigurationRequest,
     ResourceConfigurationUpdate,
     Selector,
 )
 from .selectors import select_nodes
+from admin_api.collector.plugins.telegraf import TelegrafValidator
 
 if TYPE_CHECKING:
     from metranova.storage.clickhouse import Clickhouse
@@ -37,6 +40,8 @@ COLUMNS = [
     "timeout",
     "field_mappings",
     "node_selectors",
+    "source",
+    "source_id",
     "updated_at",
 ]
 
@@ -85,6 +90,8 @@ def _to_row(config: ResourceConfiguration) -> dict[str, Any]:
         "timeout": config.timeout,
         "field_mappings": field_mappings,
         "node_selectors": node_selectors,
+        "source": config.source,
+        "source_id": config.source_id,
     }
 
 
@@ -124,6 +131,8 @@ def _from_row(row) -> ResourceConfiguration:
         timeout=row["timeout"],
         field_mappings=field_mappings,
         node_selectors=node_selectors,
+        source=row["source"],
+        source_id=row["source_id"],
     )
 
 
@@ -288,14 +297,12 @@ class CollectorService:
         request: ResourceConfigurationUpdate,
         collector_plugin: str | None = None,
     ) -> ResourceConfiguration:
-        """Append a new snapshot of an existing configuration and re-render it.
+        """Append a new desired snapshot without activating it.
 
         `None` means "leave unchanged". The resource type is immutable — a
         configuration for a different type is a different configuration.
 
-        The snapshot is written first and rendered afterwards. A render failure
-        is logged, not raised: the insert is append-only and cannot be rolled
-        back, so the new version stands regardless.
+        Rendering and activation require separate preview/apply requests.
 
         Args:
             config_id: Stable id shared by all versions of the configuration.
@@ -331,11 +338,6 @@ class CollectorService:
         )
         await self._insert(config)
 
-        try:
-            await self.generate_configuration(config)
-        except Exception as e:
-            logger.exception(f"Error rendering configuration '{config.ref}': {e}")
-
         return config
 
     async def delete_resource_configuration(self, config_id: str) -> dict[str, str]:
@@ -362,15 +364,76 @@ class CollectorService:
             "id": config_id,
         }
 
-    async def generate_configuration(self, c: ResourceConfiguration):
-        plugin = self.plugins.get(c.collector_plugin)
-        if plugin is None:
-            raise LookupError(
-                f"No collector plugin '{c.collector_plugin}' is registered. "
-                f"Available plugins: {', '.join(sorted(self.plugins)) or 'none'}"
-            )
+    async def generate_configuration(self, config: ResourceConfiguration) -> str:
+        """Render the configuration for a given snapshot.
 
-        # Empty selectors resolve to every node; otherwise only the matches.
+        Used primarily to verify syntactic validity of a new version
+        before it becomes active.
+        """
+        plugin = self.plugins.get(config.collector_plugin)
+        if plugin is None:
+            raise LookupError(f"No collector plugin '{config.collector_plugin}' registered")
+
+        if hasattr(plugin, "_safe_resource_type"):
+            plugin._safe_resource_type(config.resource_type)
+
         all_nodes = await NodeService(self.storage).get_nodes()
-        nodes = select_nodes(all_nodes, c.node_selectors)
-        return await plugin.render_config(c, nodes)
+        nodes = select_nodes(all_nodes, config.node_selectors)
+        return await plugin.render_config(config, nodes)
+
+    async def plan_configuration(self, config_id: str) -> PlanResponse:
+        """Preview the effect of applying a configuration.
+
+        Returns a plan indicating validation status and whether the
+        configuration differs from the currently active one.
+        """
+        config = await self.get_resource_configuration_by_id(config_id)
+        plugin = self.plugins.get(config.collector_plugin)
+        if plugin is None:
+            raise LookupError(f"No collector plugin '{config.collector_plugin}' registered")
+
+        all_nodes = await NodeService(self.storage).get_nodes()
+        nodes = select_nodes(all_nodes, config.node_selectors)
+        self._check_owned_selection(config, nodes)
+        rendered = await plugin.render_config(config, nodes)
+        if not await plugin.validate_config(rendered):
+            raise ValueError("Configuration validation failed")
+        if not hasattr(plugin, "check_changed"):
+            raise ValueError("Collector plugin does not support read-only change inspection")
+        is_changed = await plugin.check_changed(rendered, config.id)
+
+        return PlanResponse(
+            config_id=config_id,
+            resource_type=config.resource_type,
+            is_valid=True,
+            is_changed=is_changed,
+        )
+
+    @staticmethod
+    def _check_owned_selection(config: ResourceConfiguration, nodes) -> None:
+        if config.source:
+            if not config.node_selectors or not nodes:
+                raise ValueError("Owned configuration requires explicit, nonempty node selection")
+            if any(node.source != config.source for node in nodes):
+                raise ValueError("Ownership collision in selected nodes")
+
+    async def apply_configuration(self, config_id: str) -> ApplyResponse:
+        """Validate and publish a configuration.
+
+        Returns an apply response indicating if it was published and reloaded.
+        """
+        config = await self.get_resource_configuration_by_id(config_id)
+        plugin = self.plugins.get(config.collector_plugin)
+        if plugin is None:
+            raise LookupError("Collector plugin is not registered")
+        all_nodes = await NodeService(self.storage).get_nodes()
+        nodes = select_nodes(all_nodes, config.node_selectors)
+        self._check_owned_selection(config, nodes)
+        rendered = await plugin.render_config(config, nodes)
+        published = await plugin.publish_config(rendered, config.id)
+
+        return ApplyResponse(
+            config_id=config_id,
+            published=published,
+            reloaded=published,
+        )

@@ -27,9 +27,23 @@ class DataSourcePlugin(ABC):
         ...
 
     @abstractmethod
-    def reload(self) -> None:
-        """Signal the collector process to reload its configuration.
-        Called only by the plugin container after writing the config file.
+    async def publish_config(
+        self,
+        config_text: str,
+        resource_type: str,
+    ) -> None:
+        """Persist the rendered configuration to the target environment.
+        This is the mutation step.
+        """
+        ...
+
+    @abstractmethod
+    async def validate_config(
+        self,
+        config_text: str,
+    ) -> bool:
+        """Validate the rendered configuration.
+        Returns True if valid, False otherwise.
         """
         ...
 

@@ -81,9 +81,12 @@ def test_generate_telegraf_config_one_block_per_community():
         "inputs"
     ]["snmp"]
 
-    assert [b["community"] for b in blocks] == ["public", "private"]
-    assert blocks[0]["agents"] == ["udp://10.0.0.1:161", "udp://10.0.0.2:161"]
-    assert blocks[1]["agents"] == ["udp://10.0.0.3:161"]
+    assert [b["community"] for b in blocks] == ["private", "public"]
+    assert blocks[1]["agents"] == ["udp://10.0.0.1:161", "udp://10.0.0.2:161"]
+    assert blocks[0]["agents"] == ["udp://10.0.0.3:161"]
+    assert blocks == TelegrafVscode().generate_telegraf_config(
+        _config(), nodes=list(reversed(nodes)),
+    )["inputs"]["snmp"]
 
 
 def test_generate_telegraf_config_carries_field_and_table_mappings():
@@ -118,32 +121,26 @@ def test_generate_telegraf_config_uses_node_port():
 # --------------------------------------------------------------------------
 
 
-def test_render_config_patches_existing_configmap():
+def test_render_config_is_read_only():
     api = DummyCoreV1Api()
     plugin = TelegrafKube(core_v1_api=api, namespace="test-ns")
 
     output = asyncio.run(plugin.render_config(_config(), [_node()]))
 
-    assert "cpu.conf" in output
-    assert len(api.patch_calls) == 1
-    name, namespace, body = api.patch_calls[0]
-    assert namespace == "test-ns"
-    assert list(body["data"].keys()) == ["cpu.conf"]
-    assert "udp://10.0.0.1:161" in body["data"]["cpu.conf"]
+    assert "udp://10.0.0.1:161" in output
+    assert "[[outputs" not in output
+    assert api.patch_calls == []
     assert api.create_calls == []
 
 
-def test_render_config_creates_configmap_when_missing():
+def test_render_config_does_not_provision_missing_configmap():
     api = DummyCoreV1Api(missing=True)
     plugin = TelegrafKube(core_v1_api=api, namespace="test-ns")
 
     asyncio.run(plugin.render_config(_config(), [_node()]))
 
-    assert len(api.patch_calls) == 1
-    assert len(api.create_calls) == 1
-    namespace, body = api.create_calls[0]
-    assert namespace == "test-ns"
-    assert list(body.data.keys()) == ["cpu.conf"]
+    assert api.patch_calls == []
+    assert api.create_calls == []
 
 
 def test_render_config_rejects_unsafe_resource_type():

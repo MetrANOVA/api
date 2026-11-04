@@ -1,5 +1,51 @@
 # MetrANOVA API
 
+## API-owned Telegraf configuration (development)
+
+Collector create/update requests store desired settings only. GET `/collector/resource_configurations/{id}/render`
+renders without publishing. GET `.../{id}/preview` validates and checks for
+changes without publication; its response does not include sensitive TOML.
+POST `.../{id}/apply` is the explicit activation request. Use the router's
+configured prefix/root path when constructing URLs.
+
+For `telegraf_kube`, provision `<release>-telegraf-resource-configurations`
+before applying and grant the API ServiceAccount get/patch on that ConfigMap
+and patch on `<release>-telegraf`. Configuration files are keyed by collector
+ID, not resource type, so multiple collectors cannot overwrite one another.
+The deployment base config owns outputs; generated files contain inputs only.
+Supply `TELEGRAF_BINARY_PATH`, `TELEGRAF_VERSION` (exact deployed version), and
+`TELEGRAF_BASE_CONFIG_PATH` (the deployment base TOML) to the API. Missing
+settings/binary, version mismatch, and validation errors block publication.
+Validation loads the base plus all candidate ConfigMap fragments in a private
+temporary file with a finite timeout and Telegraf test wait of zero. It does
+not establish ingestion. Telegraf `--test` still gathers from inputs even
+with zero test wait: applying requires authorization to contact selected devices.
+An unreachable device can therefore block this test. Outputs are loaded but
+not exercised by test mode. A connectivity-independent validation method is
+not implemented.
+
+Serialize apply requests with other configuration writers. Changed ConfigMap
+data is published only after validation; the API patches a configuration hash
+onto the Deployment, then records its acknowledgement in the ConfigMap.
+If activation acknowledgement fails, apply returns an error and a rerun
+retries activation even when the data already matches. A successful request
+means a restart was requested, not that rollout or ingestion was verified.
+Invalid output leaves the ConfigMap unchanged. No automatic ConfigMap creation
+or destructive schema repair is performed.
+
+Optional `source`/`source_id` fields identify owned node/collector
+records. Owned collectors require explicit nonempty node selection and cannot
+select unowned or differently owned nodes. Fresh tables include these fields;
+existing installations require an operator-reviewed metadata schema upgrade
+before these APIs can use them. No migration is performed by this change.
+These fields alone are not authorization or an implemented reconciliation
+protocol. CDS synchronization and deployment/image wiring remain unfinished.
+
+Offline validation: `CLICKHOUSE_DB=metranova uv run --python 3.14 pytest -q`.
+Existing storage fixtures assume that database name; all storage and Kubernetes
+operations in these tests use doubles, not live infrastructure. Validator tests
+stub the executable; a real deployment-matching Telegraf check is still required.
+
 ## Cloning
 
 This repo uses submodules. When cloining please remember to use the recurse-submodules flag.

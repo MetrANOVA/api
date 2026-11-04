@@ -86,9 +86,8 @@ async def update_collector_resource_configuration(
 ):
     """Append a new version of a collector resource configuration.
 
-    Omitted (or null) fields keep their current value. This is a POST rather
-    than a PUT because it is not a pure write: the new version is re-rendered
-    into the collector's configuration afterwards.
+    Omitted (or null) fields keep their current value. Activation requires
+    a separate POST to the configuration's /apply endpoint.
     """
     try:
         metadata = CollectorService(req.app.state.se)
@@ -135,4 +134,36 @@ async def render_collector_resource_configuration(req: Request, config_id: str):
         raise HTTPException(
             status_code=400,
             detail=f"Error rendering collector resource configuration: {e}",
+        )
+
+
+@router.get("/resource_configurations/{config_id}/preview")
+async def preview_collector_resource_configuration(req: Request, config_id: str):
+    """Preview the effect of applying a configuration (Plan)."""
+    try:
+        metadata = CollectorService(req.app.state.se)
+        return await metadata.plan_configuration(config_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error previewing collector resource configuration: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error previewing collector resource configuration: {e}",
+        )
+
+
+@router.post("/resource_configurations/{config_id}/apply")
+async def apply_collector_resource_configuration(req: Request, config_id: str):
+    """Validate and publish a configuration (Apply)."""
+    try:
+        metadata = CollectorService(req.app.state.se)
+        return await metadata.apply_configuration(config_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error applying collector resource configuration: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error applying collector resource configuration: {e}",
         )

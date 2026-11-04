@@ -32,6 +32,8 @@ class ResourceConfiguration(BaseModel):
         timeout: Per-poll timeout in seconds.
         field_mappings: Resource-type field name -> how to collect it.
         node_selectors: Nodes to collect from; empty means all of them.
+        source: The source of this configuration (e.g. 'cds').
+        source_id: Stable identifier from the source.
 
     Usage:
 
@@ -49,6 +51,8 @@ class ResourceConfiguration(BaseModel):
     timeout: int = 15
     field_mappings: dict[str, FieldConfig] = Field(default_factory=dict)
     node_selectors: list[Selector] = Field(default_factory=list)
+    source: str | None = None
+    source_id: str | None = None
 
 
 class ResourceConfigurationRequest(BaseModel):
@@ -61,6 +65,8 @@ class ResourceConfigurationRequest(BaseModel):
     timeout: int = Field(default=15, gt=0)
     field_mappings: dict[str, FieldConfig] = Field(default_factory=dict)
     node_selectors: list[Selector] = Field(default_factory=list)
+    source: str | None = Field(default=None, min_length=1)
+    source_id: str | None = Field(default=None, min_length=1)
 
 
 class ResourceConfigurationUpdate(BaseModel):
@@ -76,3 +82,33 @@ class ResourceConfigurationUpdate(BaseModel):
     timeout: int | None = Field(default=None, gt=0)
     field_mappings: dict[str, FieldConfig] | None = None
     node_selectors: list[Selector] | None = None
+    source: str | None = None
+    source_id: str | None = None
+
+
+class PlanResponse(BaseModel):
+    """The result of a configuration plan.
+
+    Indicates if the proposed change is valid and whether it differs from
+    the currently active configuration.
+    """
+
+    config_id: str
+    resource_type: str
+    is_valid: bool
+    is_changed: bool
+    rendered_config: str | None = None
+    error: str | None = None
+
+
+class ApplyResponse(BaseModel):
+    """The result of a configuration apply.
+
+    Indicates if the configuration was successfully published and if the
+    collector was reloaded.
+    """
+
+    config_id: str
+    published: bool
+    reloaded: bool
+    error: str | None = None

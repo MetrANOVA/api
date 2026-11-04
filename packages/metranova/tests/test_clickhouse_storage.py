@@ -606,7 +606,7 @@ def test_create_data_table_executes_expected_query(monkeypatch):
     query = storage.client.command_calls[0]
     assert "CREATE TABLE `metranova`.`data_interface_traffic`" in query
     assert "`if_name` String NOT NULL" in query
-    assert "`rx_bps` Float64" in query
+    assert "`rx_bps` Nullable(Float64)" in query
     assert "PRIMARY KEY (collector_id, insert_time, `if_name`, `timestamp`)" in query
     assert "PARTITION BY toYYYYMM(insert_time)" in query
     assert "ORDER BY (collector_id, insert_time, `if_name`, `timestamp`)" in query

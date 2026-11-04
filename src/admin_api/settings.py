@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     db_url: str = ""
     kube_release_namespace: str = os.getenv("METRANOVA_KUBE_RELEASE_NAMESPACE", "metranova-test")
     kube_release_name: str = os.getenv("METRANOVA_KUBE_RELEASE_NAME", "metranova")
+    telegraf_binary_path: str = os.getenv("METRANOVA_TELEGRAF_BINARY", "/usr/bin/telegraf")
+    telegraf_version: str = ""
+    telegraf_base_config_path: str = ""
 
 
 @lru_cache()

@@ -6,6 +6,8 @@ class Node(BaseModel):
 
     Attributes:
         node_id: Server-assigned stable identifier.
+        source: The system that owns this record (e.g., 'cds').
+        source_id: The stable identifier in the source system.
         host: Hostname or IPv4/IPv6 address used to reach the node.
         port: Port used to reach the node.
         community: SNMP community string.
@@ -15,6 +17,8 @@ class Node(BaseModel):
     """
 
     node_id: str
+    source: str | None = None
+    source_id: str | None = None
     host: str
     port: int
     community: str
@@ -26,6 +30,8 @@ class Node(BaseModel):
 class NodeCreateRequest(BaseModel):
     """Client-supplied fields; node_id is assigned by the server on insert."""
 
+    source: str | None = None
+    source_id: str | None = None
     host: str = Field(min_length=1)
     port: int = Field(gt=0, le=65535)
     community: str = Field(min_length=1)
@@ -33,10 +39,11 @@ class NodeCreateRequest(BaseModel):
     make: str = Field(min_length=1)
     model: str = Field(min_length=1)
 
-
 class NodeUpdateRequest(BaseModel):
     """Full replacement body for PUT; node_id comes from the path."""
 
+    source: str | None = None
+    source_id: str | None = None
     host: str = Field(min_length=1)
     port: int = Field(gt=0, le=65535)
     community: str = Field(min_length=1)

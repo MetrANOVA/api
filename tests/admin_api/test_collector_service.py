@@ -127,6 +127,8 @@ def _request(**overrides) -> ResourceConfigurationRequest:
         name="example telegraf",
         resource_type="interface",
         collector_plugin="telegraf_vscode",
+        source="test",
+        source_id="test_id",
     )
     defaults.update(overrides)
     return ResourceConfigurationRequest(**defaults)
@@ -373,7 +375,7 @@ def test_get_resource_configuration_by_id_reports_missing():
         asyncio.run(service.get_resource_configuration_by_id("nope"))
 
 
-def test_update_renders_the_new_snapshot():
+def test_update_stores_snapshot_without_activation():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     plugin = DummyPlugin()
     service = _service(storage, plugin)
@@ -387,12 +389,11 @@ def test_update_renders_the_new_snapshot():
     )
 
     assert result.ref == "example_telegraf__v2"
-    # the render sees the merged v2, not the stored v1
-    assert [c.ref for c in plugin.rendered] == ["example_telegraf__v2"]
-    assert plugin.rendered[0].interval == 30
+    assert result.interval == 30
+    assert plugin.rendered == []
 
 
-def test_update_keeps_the_snapshot_when_rendering_fails():
+def test_update_does_not_invoke_failing_renderer():
     storage = DummyStorage(query_results=[[_stored_row(_config())]])
     service = _service(storage, DummyPlugin(error=OSError("read-only file system")))
 
@@ -402,8 +403,7 @@ def test_update_keeps_the_snapshot_when_rendering_fails():
         )
     )
 
-    # The insert is append-only and cannot be rolled back, so the version stands
-    # and the render failure is logged rather than raised.
+    # Activation is a separate explicit request.
     assert len(storage.client.insert_calls) == 1
     assert result.ref == "example_telegraf__v2"
 
@@ -465,6 +465,8 @@ def test_generate_configuration_rejects_unsafe_resource_type():
 def _node_row(**overrides) -> dict:
     row = dict(
         node_id="n1",
+        source="test-source",
+        source_id="test-id",
         host="10.0.0.1",
         port=161,
         community="public",

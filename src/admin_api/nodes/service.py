@@ -14,6 +14,8 @@ TABLE = "nodes"
 
 COLUMNS = [
     "node_id",
+    "source",
+    "source_id",
     "host",
     "port",
     "community",
@@ -28,6 +30,8 @@ def _to_row(node: Node) -> dict[str, Any]:
     """Flatten a Node into a ClickHouse row dict."""
     return {
         "node_id": node.node_id,
+        "source": node.source,
+        "source_id": node.source_id,
         "host": node.host,
         "port": node.port,
         "community": node.community,
@@ -44,6 +48,8 @@ def _from_row(row) -> Node:
 
     return Node(
         node_id=row["node_id"],
+        source=row["source"],
+        source_id=row["source_id"],
         host=row["host"],
         port=row["port"],
         community=row["community"],
