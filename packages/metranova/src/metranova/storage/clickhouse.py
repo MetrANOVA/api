@@ -157,6 +157,16 @@ class Clickhouse(StorageEngine):
             raise ValueError(f"Invalid column type: {field_type}")
         return value
 
+    def _column_type_for_nullability(self, field_type: str, nullable: bool) -> str:
+        value = self._validated_column_type(field_type)
+        is_nullable = value.lower().startswith("nullable(") and value.endswith(")")
+        if nullable and not is_nullable:
+            return f"Nullable({value})"
+        while not nullable and is_nullable:
+            value = value[value.find("(") + 1 : -1].strip()
+            is_nullable = value.lower().startswith("nullable(") and value.endswith(")")
+        return value
+
     def _canonicalize_column_type(self, field_type: str, valid_types: list[str]) -> str:
         value = self._validated_column_type(field_type)
         valid_lookup = {valid_type.lower(): valid_type for valid_type in valid_types}
@@ -457,18 +467,7 @@ class Clickhouse(StorageEngine):
     ):
         for field_name, field_type, nullable in fields:
             safe_field_name = self._quoted_identifier(field_name)
-            safe_field_type = self._validated_column_type(field_type)
-            is_nullable_type = safe_field_type.lower().startswith(
-                "nullable("
-            ) and safe_field_type.endswith(")")
-
-            if nullable and not is_nullable_type:
-                safe_field_type = f"Nullable({safe_field_type})"
-            elif not nullable and is_nullable_type:
-                # Keep the physical type aligned with the nullable flag.
-                safe_field_type = safe_field_type[
-                    safe_field_type.find("(") + 1 : -1
-                ].strip()
+            safe_field_type = self._column_type_for_nullability(field_type, nullable)
 
             query = (
                 f"ALTER TABLE {self._qualified_table_name(table_name)} "
@@ -527,7 +526,7 @@ class Clickhouse(StorageEngine):
         field_columns = []
         for f in fields:
             safe_field_name = self._quoted_identifier(f[0])
-            safe_field_type = self._validated_column_type(f[1])
+            safe_field_type = self._column_type_for_nullability(f[1], f[2])
             col = f"{safe_field_name} {safe_field_type}"
             if f[2] is False:
                 col += " NOT NULL"
