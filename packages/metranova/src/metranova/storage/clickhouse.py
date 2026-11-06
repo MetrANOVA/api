@@ -1142,6 +1142,24 @@ class Clickhouse(StorageEngine):
             ORDER BY (node_id);
         """)
 
+    async def ensure_resource_configuration_memberships_table(self):
+        if not await self.is_connected():
+            await self.connect()
+
+        table_name = self._qualified_table_name("resource_configuration_memberships")
+        on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
+        await self.client.command(f"""
+            CREATE TABLE IF NOT EXISTS {table_name}{on_cluster_clause}
+            (
+                resource_config_id String,
+                device_identity String,
+                active Bool,
+                updated_at DateTime64(9) DEFAULT now64(9)
+            )
+            ENGINE = {self._validated_engine_name(self.metadata_engine)}()
+            ORDER BY (resource_config_id, device_identity);
+        """)
+
     async def restart_pipelines(self):
         try:
             if self.container_manager == "kubernetes":

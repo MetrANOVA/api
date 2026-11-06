@@ -52,7 +52,15 @@ def flow(monkeypatch):
         "admin_api.collector.service.NodeService",
         lambda storage: SimpleNamespace(get_nodes=AsyncMock(return_value=[node])),
     )
-    service.storage = object()
+    monkeypatch.setattr(
+        "admin_api.collector.service.MembershipService.selected_nodes",
+        AsyncMock(return_value=[node]),
+    )
+    monkeypatch.setattr(
+        "admin_api.collector.service.MembershipService.has_history",
+        AsyncMock(return_value=False),
+    )
+    service.storage = SimpleNamespace(client=object())
     return service, plugin, core, apps, cm, config, node
 
 

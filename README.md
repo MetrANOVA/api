@@ -34,12 +34,38 @@ Invalid output leaves the ConfigMap unchanged. No automatic ConfigMap creation
 or destructive schema repair is performed.
 
 Optional `source`/`source_id` fields identify owned node/collector
-records. Owned collectors require explicit nonempty node selection and cannot
-select unowned or differently owned nodes. Fresh tables include these fields;
-existing installations require an operator-reviewed metadata schema upgrade
-before these APIs can use them. No migration is performed by this change.
-These fields alone are not authorization or an implemented reconciliation
-protocol. CDS synchronization and deployment/image wiring remain unfinished.
+records. Owned collectors require explicit nonempty node selection, either
+through selectors or active memberships, and cannot select unowned or
+differently owned nodes. Fresh tables include these fields; existing
+installations require an operator-reviewed metadata schema upgrade before
+these APIs can use them. No migration is performed by this change. These fields
+alone are not authorization. CDS synchronization and deployment/image wiring
+remain unfinished.
+
+## Resource-configuration device memberships
+
+The admin API exposes:
+
+- `GET /resource-configs/{resource_id}` -> `{"devices": ["hostname-or-IP", ...]}`
+- `POST /resource-configs/{resource_id}/devices/{device_id}` with `{}` to add
+- `DELETE /resource-configs/{resource_id}/devices/{device_id}` to remove
+
+Device identities prefer the normalized node name and fall back to canonical
+management IP. Adds require exactly one matching node and are idempotent;
+removes are idempotent and can clear stale identities. The API stores
+append-only active/tombstone records in
+`resource_configuration_memberships`. A resource configuration with membership
+history is rendered from its active memberships, including the empty set.
+Before the first membership write, selector-based legacy devices are copied
+into membership state so the first add/remove does not unexpectedly discard
+other previously selected devices. Configurations without membership history
+retain their existing `node_selectors` behavior.
+
+Membership rows are created on demand by the API and are also included in the
+development ClickHouse initialization SQL. No transaction or concurrent-writer
+guarantee is provided. These routes have the same trusted-network deployment
+boundary as the existing admin API; this code does not add authentication, and
+the deployed ingress/network policy has not been verified.
 
 Offline validation: `CLICKHOUSE_DB=metranova uv run --python 3.14 pytest -q`.
 Existing storage fixtures assume that database name; all storage and Kubernetes

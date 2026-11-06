@@ -1,0 +1,1 @@
+"""Resource-configuration membership endpoints."""

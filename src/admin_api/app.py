@@ -16,6 +16,7 @@ from admin_api.collector.router import router as collector_router
 from admin_api.metadata.router import router as metadata_router
 from admin_api.transformer.router import router as transformer_router
 from admin_api.nodes.router import router as nodes_router
+from admin_api.resource_configs.router import router as resource_configs_router
 from .context import lifespan, get_clickhouse
 
 description = """
@@ -82,3 +83,4 @@ app.include_router(resource_type_router, prefix="/type", tags=["resource_type"])
 app.include_router(metadata_router, prefix="/metadata")
 app.include_router(transformer_router, prefix="/transformers")
 app.include_router(nodes_router, prefix="/nodes", tags=["nodes"])
+app.include_router(resource_configs_router)

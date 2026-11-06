@@ -5,6 +5,7 @@ from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
 from admin_api.nodes.service import NodeService
+from admin_api.collector.membership import MembershipService
 from admin_api.resource_type.router import (
     _existing_data_field_names,
     _existing_meta_field_names,
@@ -19,7 +20,6 @@ from .model import (
     ResourceConfigurationUpdate,
     Selector,
 )
-from .selectors import select_nodes
 from admin_api.collector.plugins.telegraf import TelegrafValidator
 
 if TYPE_CHECKING:
@@ -377,9 +377,35 @@ class CollectorService:
         if hasattr(plugin, "_safe_resource_type"):
             plugin._safe_resource_type(config.resource_type)
 
-        all_nodes = await NodeService(self.storage).get_nodes()
-        nodes = select_nodes(all_nodes, config.node_selectors)
+        nodes = await self._selected_nodes(config)
         return await plugin.render_config(config, nodes)
+
+    async def _selected_nodes(self, config: ResourceConfiguration):
+        all_nodes = await NodeService(self.storage).get_nodes()
+        return await MembershipService(self.storage).selected_nodes(config, all_nodes)
+
+    async def get_resource_config_devices(self, config_id: str) -> list[str]:
+        config = await self.get_resource_configuration_by_id(config_id)
+        nodes = await NodeService(self.storage).get_nodes()
+        return await MembershipService(self.storage).device_ids(config, nodes)
+
+    async def add_resource_config_device(
+        self, config_id: str, device_id: str,
+    ) -> list[str]:
+        config = await self.get_resource_configuration_by_id(config_id)
+        nodes = await NodeService(self.storage).get_nodes()
+        membership = MembershipService(self.storage)
+        await membership.add(config, nodes, device_id)
+        return await membership.device_ids(config, nodes)
+
+    async def remove_resource_config_device(
+        self, config_id: str, device_id: str,
+    ) -> list[str]:
+        config = await self.get_resource_configuration_by_id(config_id)
+        nodes = await NodeService(self.storage).get_nodes()
+        membership = MembershipService(self.storage)
+        await membership.remove(config, nodes, device_id)
+        return await membership.device_ids(config, nodes)
 
     async def plan_configuration(self, config_id: str) -> PlanResponse:
         """Preview the effect of applying a configuration.
@@ -392,9 +418,8 @@ class CollectorService:
         if plugin is None:
             raise LookupError(f"No collector plugin '{config.collector_plugin}' registered")
 
-        all_nodes = await NodeService(self.storage).get_nodes()
-        nodes = select_nodes(all_nodes, config.node_selectors)
-        self._check_owned_selection(config, nodes)
+        nodes = await self._selected_nodes(config)
+        await self._check_owned_selection(config, nodes)
         rendered = await plugin.render_config(config, nodes)
         if not await plugin.validate_config(rendered):
             raise ValueError("Configuration validation failed")
@@ -409,10 +434,14 @@ class CollectorService:
             is_changed=is_changed,
         )
 
-    @staticmethod
-    def _check_owned_selection(config: ResourceConfiguration, nodes) -> None:
+    async def _check_owned_selection(
+        self, config: ResourceConfiguration, nodes,
+    ) -> None:
         if config.source:
-            if not config.node_selectors or not nodes:
+            membership_managed = await MembershipService(self.storage).has_history(
+                config.id,
+            )
+            if (not config.node_selectors and not membership_managed) or not nodes:
                 raise ValueError("Owned configuration requires explicit, nonempty node selection")
             if any(node.source != config.source for node in nodes):
                 raise ValueError("Ownership collision in selected nodes")
@@ -426,9 +455,8 @@ class CollectorService:
         plugin = self.plugins.get(config.collector_plugin)
         if plugin is None:
             raise LookupError("Collector plugin is not registered")
-        all_nodes = await NodeService(self.storage).get_nodes()
-        nodes = select_nodes(all_nodes, config.node_selectors)
-        self._check_owned_selection(config, nodes)
+        nodes = await self._selected_nodes(config)
+        await self._check_owned_selection(config, nodes)
         rendered = await plugin.render_config(config, nodes)
         published = await plugin.publish_config(rendered, config.id)
 

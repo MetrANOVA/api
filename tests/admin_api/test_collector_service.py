@@ -65,6 +65,9 @@ class DummyStorage:
     async def ensure_nodes_table(self):
         pass
 
+    async def ensure_resource_configuration_memberships_table(self):
+        pass
+
     def _qualified_table_name(self, table_name: str) -> str:
         return f"`{self.database}`.`{table_name}`"
 
@@ -517,3 +520,22 @@ def test_generate_configuration_without_selectors_passes_every_node():
     )
 
     assert [n.host for n in plugin.rendered_nodes[0]] == ["10.0.0.1", "10.0.0.2"]
+
+
+def test_generate_configuration_uses_membership_after_config_is_managed():
+    storage = DummyStorage(query_results=[
+        [
+            _node_row(node_id="a", name="a.example", host="10.0.0.1"),
+            _node_row(node_id="b", name="b.example", host="10.0.0.2"),
+        ],
+        [
+            {"device_identity": "a.example", "active": True},
+            {"device_identity": "b.example", "active": False},
+        ],
+    ])
+    plugin = DummyPlugin()
+    service = _service(storage, plugin)
+
+    asyncio.run(service.generate_configuration(_config(node_selectors=[])))
+
+    assert [node.host for node in plugin.rendered_nodes[0]] == ["10.0.0.1"]
