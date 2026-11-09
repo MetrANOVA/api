@@ -108,6 +108,24 @@ def test_generate_telegraf_config_carries_field_and_table_mappings():
     assert {f["name"] for f in table["field"]} == {"intf", "input"}
 
 
+def test_generate_telegraf_config_names_scalar_discovery_probe_by_resource_type():
+    config = _config(
+        resource_type="discovery_probe",
+        field_mappings={
+            "discovery_probe": FieldConfig(oid=".1.3.6.1.2.1.1.3.0"),
+        },
+    )
+
+    block = TelegrafVscode().generate_telegraf_config(config, nodes=[_node()])[
+        "inputs"
+    ]["snmp"][0]
+
+    assert block["name_override"] == "discovery_probe"
+    assert block["field"] == [
+        {"name": "discovery_probe", "oid": ".1.3.6.1.2.1.1.3.0"}
+    ]
+
+
 def test_generate_telegraf_config_uses_node_port():
     block = TelegrafVscode().generate_telegraf_config(
         _config(), nodes=[_node(host="dev.example", port=1161)]

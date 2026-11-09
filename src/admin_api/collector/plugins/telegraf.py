@@ -137,6 +137,7 @@ class TelegrafPlugin(DataSourcePlugin):
                 else f"udp://{n.host}:{n.port}" for n in group
             )
             block: dict[str, Any] = {
+                "name_override": config.resource_type,
                 "agents": sorted_agents,
                 "agent_host_tag": "device",
                 "version": version,

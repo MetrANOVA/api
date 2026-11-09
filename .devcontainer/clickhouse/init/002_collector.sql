@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS metranova.resource_configuration
     slug String,
     resource_type String,         -- definition slug this config collects for
     collector_plugin String,      -- e.g., 'telegraf_vscode'
+    source Nullable(String),
+    source_id Nullable(String),
     interval UInt32 DEFAULT 60,
     timeout UInt32 DEFAULT 15,
 

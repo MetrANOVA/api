@@ -1053,6 +1053,12 @@ class Clickhouse(StorageEngine):
                     # Some test doubles return non-EXISTS-shaped rows; avoid hard failure.
                     exists = True
         if exists:
+            on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
+            await self.client.command(f"""
+                ALTER TABLE {table_name}{on_cluster_clause}
+                ADD COLUMN IF NOT EXISTS source Nullable(String),
+                ADD COLUMN IF NOT EXISTS source_id Nullable(String)
+            """)
             return
 
         on_cluster_clause = await self._get_on_cluster_clause(self.metadata_engine)
