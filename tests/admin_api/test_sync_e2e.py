@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from kubernetes_asyncio.client.exceptions import ApiException
+from pydantic import ValidationError
 
 from admin_api.collector.model import FieldConfig, ResourceConfiguration, Selector
 from admin_api.collector.plugins.telegraf import (
@@ -13,6 +14,7 @@ from admin_api.collector.plugins.telegraf import (
 )
 from admin_api.collector.service import CollectorService
 from admin_api.nodes.model import Node
+from admin_api.settings import Settings
 
 
 @pytest.fixture
@@ -135,7 +137,9 @@ def test_multiple_collectors_for_same_resource_keep_separate_files(flow):
     assert cm.data["sample.conf"] in plugin.validate_config.call_args.args[0]
 
 
-@pytest.mark.parametrize("failure", [None, "version", "missing", "timeout", "invalid"])
+@pytest.mark.parametrize(
+    "failure", [None, "version", "missing", "version_timeout", "timeout", "invalid"],
+)
 def test_validator_checks_version_and_actual_private_candidate(monkeypatch, tmp_path, failure):
     base = tmp_path / "base.conf"
     base.write_text('[agent]\ninterval = "60s"\n')
@@ -144,26 +148,30 @@ def test_validator_checks_version_and_actual_private_candidate(monkeypatch, tmp_
         lambda: SimpleNamespace(
             telegraf_binary_path="telegraf", telegraf_version="1.40.0",
             telegraf_base_config_path=str(base),
+            telegraf_validation_timeout_seconds=37,
         ),
     )
     candidate_paths = []
 
     def run(command, **kwargs):
-        assert kwargs["timeout"] == 10
-        if failure == "missing":
-            raise FileNotFoundError("sensitive")
-        if failure == "timeout":
-            raise subprocess.TimeoutExpired(command, 10, stderr="sensitive")
         if command[-1] == "--version":
+            assert kwargs["timeout"] == 10
+            if failure == "version_timeout":
+                raise subprocess.TimeoutExpired(command, 10, stderr="sensitive")
             return subprocess.CompletedProcess(
                 command, 0, stdout=b"Telegraf 1.39.0" if failure == "version"
                 else b"Telegraf 1.40.0", stderr=b"",
             )
+        assert kwargs["timeout"] == 37
         candidate = Path(command[command.index("--config") + 1])
         assert candidate.read_text() == base.read_text() + "\n[[inputs.snmp]]\n"
         assert candidate.parent.stat().st_mode & 0o077 == 0
         assert command[-2:] == ["--test-wait", "0"]
         candidate_paths.append(candidate)
+        if failure == "missing":
+            raise FileNotFoundError("sensitive")
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 37, stderr="sensitive")
         return subprocess.CompletedProcess(
             command, 1 if failure == "invalid" else 0,
             stdout=b"", stderr=b"sensitive",
@@ -175,6 +183,8 @@ def test_validator_checks_version_and_actual_private_candidate(monkeypatch, tmp_
         with pytest.raises(TelegrafError) as error:
             asyncio.run(validator.validate("[[inputs.snmp]]\n"))
         assert "sensitive" not in str(error.value)
+        if failure in {"timeout", "version_timeout"}:
+            assert str(error.value) == "Telegraf validation timed out."
     else:
         assert asyncio.run(validator.validate("[[inputs.snmp]]\n"))
     assert all(not path.exists() for path in candidate_paths)
@@ -185,8 +195,15 @@ def test_validator_requires_deployment_settings(monkeypatch):
         "admin_api.collector.plugins.telegraf.get_settings",
         lambda: SimpleNamespace(
             telegraf_binary_path="telegraf", telegraf_version="",
-            telegraf_base_config_path="",
+            telegraf_base_config_path="", telegraf_validation_timeout_seconds=120,
         ),
     )
     with pytest.raises(TelegrafError, match="must be configured"):
         asyncio.run(TelegrafValidator().validate("candidate"))
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "invalid"])
+def test_validator_timeout_setting_rejects_invalid_environment(monkeypatch, timeout):
+    monkeypatch.setenv("TELEGRAF_VALIDATION_TIMEOUT_SECONDS", timeout)
+    with pytest.raises(ValidationError, match="telegraf_validation_timeout_seconds"):
+        Settings()

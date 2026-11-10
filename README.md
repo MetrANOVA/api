@@ -13,16 +13,17 @@ before applying and grant the API ServiceAccount get/patch on that ConfigMap
 and patch on `<release>-telegraf`. Configuration files are keyed by collector
 ID, not resource type, so multiple collectors cannot overwrite one another.
 The deployment base config owns outputs; generated files contain inputs only.
-Supply `TELEGRAF_BINARY_PATH`, `TELEGRAF_VERSION` (exact deployed version), and
-`TELEGRAF_BASE_CONFIG_PATH` (the deployment base TOML) to the API. Missing
-settings/binary, version mismatch, and validation errors block publication.
-Validation loads the base plus all candidate ConfigMap fragments in a private
-temporary file with a finite timeout and Telegraf test wait of zero. It does
-not establish ingestion. Telegraf `--test` still gathers from inputs even
-with zero test wait: applying requires authorization to contact selected devices.
-An unreachable device can therefore block this test. Outputs are loaded but
-not exercised by test mode. A connectivity-independent validation method is
-not implemented.
+Supply `TELEGRAF_BINARY_PATH`, `TELEGRAF_VERSION` (exact deployed version),
+`TELEGRAF_BASE_CONFIG_PATH` (the deployment base TOML), and optionally
+`TELEGRAF_VALIDATION_TIMEOUT_SECONDS` (positive integer, default 120) to the API.
+Missing settings/binary, version mismatch, and validation errors block
+publication. Validation loads the base plus all candidate ConfigMap fragments
+in a private temporary file with the configured timeout and Telegraf test wait
+of zero. It does not establish ingestion. Telegraf `--test` still gathers from
+inputs even with zero test wait: applying requires authorization to contact
+selected devices. An unreachable device can therefore block this test.
+Outputs are loaded but not exercised by test mode. A connectivity-independent
+validation method is not implemented.
 
 Serialize apply requests with other configuration writers. Changed ConfigMap
 data is published only after validation; the API patches a configuration hash

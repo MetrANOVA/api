@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 import os
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
     telegraf_binary_path: str = os.getenv("METRANOVA_TELEGRAF_BINARY", "/usr/bin/telegraf")
     telegraf_version: str = ""
     telegraf_base_config_path: str = ""
+    telegraf_validation_timeout_seconds: int = Field(default=120, gt=0)
 
 
 @lru_cache()

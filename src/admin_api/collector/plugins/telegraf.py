@@ -29,6 +29,7 @@ class TelegrafValidator:
         self.binary_path = get_settings().telegraf_binary_path
         self.expected_version = get_settings().telegraf_version
         self.base_config_path = get_settings().telegraf_base_config_path
+        self.validation_timeout = get_settings().telegraf_validation_timeout_seconds
 
     async def validate(self, config_text: str) -> bool:
         """Load and test the deployment base configuration and candidate."""
@@ -54,11 +55,13 @@ class TelegrafValidator:
                 result = subprocess.run(
                     [self.binary_path, "--config", str(candidate), "--test",
                      "--test-wait", "0"],
-                    capture_output=True, check=False, timeout=10,
+                    capture_output=True, check=False, timeout=self.validation_timeout,
                 )
                 if result.returncode:
                     raise TelegrafError("Telegraf rejected the assembled configuration.")
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            raise TelegrafError("Telegraf validation timed out.") from None
+        except OSError:
             raise TelegrafError("Telegraf validation could not complete.") from None
         return True
 
