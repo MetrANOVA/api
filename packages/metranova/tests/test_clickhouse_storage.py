@@ -626,6 +626,48 @@ def test_ensure_resource_configuration_table_creates_source_columns(monkeypatch)
     assert "source_id Nullable(String)" in query
 
 
+def test_ensure_nodes_table_migrates_existing_table(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [[1]]
+
+    async def mock_get_cluster_info():
+        return {
+            "mode": "clustered",
+            "cluster_name": "cluster-a",
+            "clusters": [("cluster-a", 1, 1, "host", "127.0.0.1", 9000)],
+        }
+
+    storage.get_cluster_info = mock_get_cluster_info
+
+    asyncio.run(storage.ensure_nodes_table())
+
+    assert len(storage.client.command_calls) == 1
+    query = storage.client.command_calls[0]
+    table_name = storage._qualified_table_name("nodes")
+    assert f"ALTER TABLE {table_name}" in query
+    assert "ON CLUSTER 'cluster-a'" in query
+    assert "ADD COLUMN IF NOT EXISTS source Nullable(String)" in query
+    assert "ADD COLUMN IF NOT EXISTS source_id Nullable(String)" in query
+
+
+def test_ensure_nodes_table_creates_table_when_missing(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
+    storage = Clickhouse()
+    storage.client = DummyAsyncClient()
+    storage.client.query_result = [[0]]
+
+    asyncio.run(storage.ensure_nodes_table())
+
+    assert len(storage.client.command_calls) == 1
+    query = storage.client.command_calls[0]
+    table_name = storage._qualified_table_name("nodes")
+    assert f"CREATE TABLE IF NOT EXISTS {table_name}" in query
+    assert "source Nullable(String)" in query
+    assert "source_id Nullable(String)" in query
+
+
 def test_create_data_table_executes_expected_query(monkeypatch):
     monkeypatch.setenv("CLICKHOUSE_SKIP_DB_CREATE", "true")
     storage = Clickhouse()
